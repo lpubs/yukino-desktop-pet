@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self';" />
+  <link rel="stylesheet" href="bubble.css" />
+</head>
+<body>
+  <!-- 独立气泡窗口：永久鼠标穿透，纯展示；显示/隐藏/移动都由主进程控制 -->
+  <div id="pomo-badge"><span id="pomo-mode"></span><b id="pomo-time">00:00</b></div>
+  <div id="bubble"><span id="bubble-text"></span><div id="bubble-tail"></div></div>
+  <script src="bubble.js"></script>
+</body>
+</html>

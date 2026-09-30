@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <!-- 显式声明 img-src：file:// 文档的 origin 是 opaque，只靠 'self' 匹配本地图片不可靠 -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data:;" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="stage">
+    <!-- 角色层：窗口即立绘大小，四套立绘叠放在同一位置，切换时淡入淡出 -->
+    <div id="sprite-wrap">
+      <div id="sprite-inner">
+        <img class="outfit" id="outfit0" alt="" draggable="false" />
+        <img class="outfit" id="outfit1" alt="" draggable="false" />
+        <img class="outfit" id="outfit2" alt="" draggable="false" />
+        <img class="outfit" id="outfit3" alt="" draggable="false" />
+        <!-- 脸红效果（摸头时一闪而过） -->
+        <div id="blush"></div>
+      </div>
+    </div>
+
+    <!-- 240 分钟挡屏遮罩（挡屏时窗口临时铺满工作区） -->
+    <div id="block-overlay">
+      <div id="block-panel">
+        <p id="block-text"></p>
+        <button id="block-ack">我知道了</button>
+      </div>
+    </div>
+  </div>
+  <script src="pet.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# 依赖与产物
+node_modules/
+release/
+release-src/
+
+# 运行时生成
+*.log
+.DS_Store
+Thumbs.db
+
+# 个人测试脚本临时产物
+tools/test-store.json

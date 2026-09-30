@@ -1,0 +1,67 @@
+/* bubble.css —— 独立气泡窗口样式（窗口 = 气泡大小，300x110 * --z，由主进程控制尺寸/位置） */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root { --z: 1; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+}
+
+#bubble {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  max-width: calc(280px * var(--z));
+  padding: calc(8px * var(--z)) calc(12px * var(--z));
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(120, 140, 180, 0.5);
+  border-radius: 10px;
+  color: #2a3a55;
+  font-size: calc(13px * var(--z));
+  line-height: 1.5;
+  opacity: 0;
+  transition: opacity 200ms ease;
+  white-space: pre-wrap;
+}
+#bubble.show { opacity: 1; }
+
+/* 尾巴：指向下方桌宠的头顶 */
+#bubble-tail {
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  background: rgba(255, 255, 255, 0.96);
+  border-right: 1px solid rgba(120, 140, 180, 0.5);
+  border-bottom: 1px solid rgba(120, 140, 180, 0.5);
+  transform: rotate(45deg);
+}
+
+/* ---- 番茄钟 / 倒计时徽章（v1.6.0）：窗口顶部的小计时条，与台词气泡互不干扰 ---- */
+#pomo-badge {
+  position: absolute;
+  left: 50%;
+  top: calc(6px * var(--z));
+  transform: translateX(-50%);
+  display: none;
+  align-items: center;
+  gap: calc(8px * var(--z));
+  padding: calc(4px * var(--z)) calc(12px * var(--z));
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(120, 140, 180, 0.5);
+  border-radius: 999px;
+  color: #2a3a55;
+  font-size: calc(12px * var(--z));
+  white-space: nowrap;
+}
+#pomo-badge.show { display: flex; }
+#pomo-badge b { font-size: calc(15px * var(--z)); font-variant-numeric: tabular-nums; }
+#pomo-badge.paused b { color: #8a94a8; }
