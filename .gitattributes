@@ -1,0 +1,20 @@
+# 两个 .bat 是 GBK + CRLF 落盘的（见 tools/gen_launchers.py）。
+# 必须锁死 eol=crlf，否则在非 Windows 上克隆得到的 LF 版本双击会乱码。
+*.bat   text eol=crlf
+
+# 其余文本统一 LF 入库
+*.js    text eol=lf
+*.json  text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.py    text eol=lf
+*.md    text eol=lf
+
+# 二进制：不要做任何行尾/编码转换
+*.png   binary
+*.ico   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.onnx  binary
+*.exe   binary

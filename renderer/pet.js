@@ -1,417 +1,604 @@
-// pet.js —— 渲染进程：状态机 / 摸头 / 久坐提醒 / 待机跑动 / 换装 / 拖拽 / 缩放 / 心跳
-// v1.5.0 架构：窗口 = 立绘大小，**永久可交互**（不再有任何穿透切换）。
-//   台词气泡在独立窗口显示（通过 window.pet.say 请求主进程）。
-//   每 5 秒向主进程报活一次；若渲染层静默假死，主进程看门狗会自动重载本页面。
-// 状态：IDLE(待机) WALK(跑动) PAT(被摸头) ANNOY(被摸烦) SLEEP(睡觉) DRAG(拖拽) BLOCK(挡屏)
-const S = Object.freeze({
-  IDLE: 'idle', WALK: 'walk', PAT: 'pat', ANNOY: 'annoy',
-  SLEEP: 'sleep', DRAG: 'drag', BLOCK: 'block'
-});
+// 雪乃桌宠 · 渲染层状态机与行为引擎
+//
+// 分层：
+//   素材层  三张 <img> 叠放，靠 opacity 切帧（不换 src，不会闪）
+//   动作层  CSS animation，以脚底为轴做形变
+//   状态层  idle / walk / drag / pomodoro 四态，互斥
+//
+// 一条原则：所有跟窗口位置的交互都走主进程 moveTo，渲染层不假设自己知道坐标。
 
-const DRAG_THRESHOLD = 6;               // 超过该像素位移才算拖拽，否则算点击
-const BLOCK_AUTO_RELEASE_MS = 10 * 60 * 1000; // 挡屏 10 分钟无响应自动让开（防卡死兜底）
+const $ = (s) => document.querySelector(s);
 
-// ---------- DOM ----------
-const inner = document.getElementById('sprite-inner');
-const wrap = document.getElementById('sprite-wrap');
-const blush = document.getElementById('blush');
-const blockOverlay = document.getElementById('block-overlay');
-const blockText = document.getElementById('block-text');
-const blockAck = document.getElementById('block-ack');
-const imgs = [0, 1, 2, 3].map(i => document.getElementById('outfit' + i));
+// 窗口尺寸必须与 main.js 的 BASE_W / BASE_H 一致（100% 档）。
+// 但**不要**拿它们去算位置：用户可以缩放到 72% / 128%，实际尺寸只有主进程知道。
+// 所有落点计算一律用 getWorkArea() / getBounds() 返回的实时值，
+// 下面这两个常量只作为"主进程还没回答"时的兜底。
+const WIN_W = 404, WIN_H = 400;
+// 地面基准：角色脚底恰好停在「工作区底边」（= 任务栏上沿），
+// 所以落点 y = 工作区高 - 窗口高 + sink。公式必须与 main.js 的 groundYOf()
+// 完全一致，否则拖拽松手后角色会停在和"初始位置/换装后位置"不同的高度上。
+const groundY = (area) => (area.y || 0) + area.height - (area.petH || WIN_H) + (area.sink || 0);
 
-// ---------- 全局状态 ----------
-let cfg = null, settings = null;
-let activeIdx = 0;
-let state = S.IDLE;
-let zoom = 1;                           // 缩放倍率（0.5 ~ 2.5）
-let idleSec = 0, prevIdleSec = 0;       // 系统空闲秒数（主进程 powerMonitor 提供）
-let useSec = 0;                         // 连续使用秒数
-let shownLevels = new Set();            // 已提醒过的级别
-let patTimes = [];                      // 摸头时间戳（判断连摸）
-let rollCount = 0;                      // 待机跑动 roll 计数
-let idleChatCount = 0;                  // 待机闲聊 roll 计数（v1.7.0）
-let lastIdleChatAt = 0;                 // 上次闲聊时间戳（防刷屏）
-let walking = null;                     // 跑动动画句柄
-let staring = false;
-let blockAutoReleaseTimer = null;
-let screenInfo = null;                  // { bounds, workArea }（跑动方向规划用）
+const wrap = $('#petWrap');
+const lookWrap = $('#lookWrap');
+const fBase = $('#fBase');
+const bubble = $('#bubble'), bubbleText = $('#bubbleText');
+const badge = $('#badge'), badgeName = $('#badgeName'), badgeTime = $('#badgeTime');
+const panel = $('#panel'), pomForm = $('#pomForm'), pomRun = $('#pomRun');
+const pomInput = $('#pomInput'), pomNameEl = $('#pomName'), pomTimeEl = $('#pomTime');
 
-// 指针（鼠标）状态。关键是任何异常路径都要能把它清干净，否则会"粘住鼠标"。
-let pointerDown = false, dragging = false;
-let lastScreenX = 0, lastScreenY = 0, downClientX = 0, downClientY = 0;
-
-// ---------- 台词气泡（独立窗口，主进程负责显示/隐藏/跟随） ----------
-function say(text, ms) {
-  if (!text) return;
-  if (settings && settings.muted) return;
-  window.pet.say(text, ms || (cfg ? cfg.timers.bubbleMs : 3200));
+const rand = (a) => a[Math.floor(Math.random() * a.length)];
+function pick(arr) {                     // 避免连续抽到同一条台词
+  if (!arr || !arr.length) return '';
+  if (arr.length === 1) return arr[0];
+  let i;
+  do { i = Math.floor(Math.random() * arr.length); } while (i === pick._last);
+  pick._last = i;
+  return arr[i];
 }
 
-// ---------- 台词：洗牌袋抽取（袋内不重复，换袋也不与上一句重复） ----------
-function makeBag(arr) {
-  let pool = [], last = null;
-  return () => {
-    if (!pool.length) {
-      pool = [...arr];
-      for (let i = pool.length - 1; i > 0; i--) {   // Fisher-Yates
-        const j = Math.floor(Math.random() * (i + 1));
-        [pool[i], pool[j]] = [pool[j], pool[i]];
-      }
-      if (last && pool.length > 1 && pool[pool.length - 1] === last) {
-        [pool[0], pool[pool.length - 1]] = [pool[pool.length - 1], pool[0]];
-      }
-    }
-    last = pool.pop();
-    return last;
-  };
-}
-const bags = {};
-function pick(catOrArr) {
-  const arr = Array.isArray(catOrArr) ? catOrArr : (cfg.lines[catOrArr] || []);
-  if (!arr.length) return '';
-  if (Array.isArray(catOrArr)) return arr[Math.floor(Math.random() * arr.length)];
-  if (!bags[catOrArr]) bags[catOrArr] = makeBag(arr);
-  return bags[catOrArr]();
-}
-const rand = (a, b) => a + Math.random() * (b - a);
+// ---------- 素材 ----------
+const OUTFITS = {
+  maid:   { name: '女仆装',       dir: '../assets/sprites/maid' },
+  sailor: { name: '水手服+贝雷帽', dir: '../assets/sprites/sailor' },
+  coat:   { name: '冬大衣+围巾',   dir: '../assets/sprites/coat' },
+  winter: { name: '冬装（全身）',  dir: '../assets/sprites/winter' }
+};
+const frames = {};   // key -> { base: Image }
 
-// ---------- 状态类切换（互斥！见 style.css 文件头约定） ----------
-const ANIM_CLASSES = ['breathe', 'bob', 'wiggle', 'struggle', 'sleep', 'annoy', 'stare'];
-function setAnim(...names) {
-  ANIM_CLASSES.forEach(c => inner.classList.remove(c));
-  names.forEach(c => inner.classList.add(c));
-}
-function toIdle() {
-  if (state === S.BLOCK) return;
-  state = S.IDLE;
-  setAnim(staring ? 'stare' : 'breathe');
+function loadFrames(key) {
+  if (frames[key]) return frames[key];
+  const o = OUTFITS[key];
+  if (!o) return null;
+  const f = { base: new Image() };
+  f.base.src = o.dir + '.png';
+  frames[key] = f;
+  return f;
 }
 
-// ---------- 缩放 ----------
-function applyZoom(z) {
-  zoom = z;
-  document.documentElement.style.setProperty('--z', String(z));
-}
-function changeZoom(factor) {
-  if (state === S.BLOCK) return;
-  const next = Math.min(2.5, Math.max(0.5, zoom * factor));
-  applyZoom(next);                          // 本地立即生效，视觉无延迟
-  window.pet.setZoom(next);                 // 主进程同步调整窗口尺寸并持久化
-}
+const state = { outfit: 'maid', mode: 'idle' };
+// 缩放档的本地镜像。真值在主进程（settings.json），这里只用来算"下一档是哪一档"。
+const SIZE_ORDER = ['small', 'medium', 'large'];
+let curScaleKey = 'medium';
 
-// ---------- 服装 ----------
-function applyFit(img, o) {
-  img.style.transformOrigin = '50% 100%';
-  img.style.transform = `translate(${o.offsetX || 0}px, ${o.offsetY || 0}px) scale(${o.scale || 1})`;
-}
-function setOutfit(i, announce = true) {
-  if (!cfg || i === activeIdx || i < 0 || i >= cfg.outfits.length) return;
-  const o = cfg.outfits[i];
-  imgs[activeIdx].classList.remove('active');  // 200ms 淡出（CSS transition）
-  imgs[i].classList.add('active');             // 同时淡入，交叉过渡无空档
-  activeIdx = i;
-  toIdle();                                    // 回到 IDLE，避免动画错位
-  if (announce) say(pick(o.switchLines));
-  window.pet.saveSettings({ outfit: i });      // 记住选择，重启恢复
-}
+function paint() { fBase.classList.add('on'); }
 
-// ---------- 摸头（窗口 = 立绘，任意位置点击都算摸） ----------
-function pat() {
-  const now = Date.now();
-  if (state === S.ANNOY || state === S.BLOCK || state === S.DRAG) return;
-  if (state === S.SLEEP) wake();               // 睡觉时被摸醒
-  if (state === S.WALK) stopWalk();
-  patTimes = patTimes.filter(t => now - t < cfg.timers.annoyWindowMs);
-  patTimes.push(now);
-  if (patTimes.length >= cfg.timers.annoyPatCount) { enterAnnoy(); return; }
-  state = S.PAT;
-  setAnim(staring ? 'stare' : 'breathe');
-  void inner.offsetWidth;                      // 重启动画
-  inner.classList.add('wiggle');               // wiggle 播完后，底层 stare/breathe 自动恢复
-  blush.classList.add('show');                 // 脸红一瞬
-  setTimeout(() => blush.classList.remove('show'), 900);
-  say(pick('pat'));
-  setTimeout(() => { if (state === S.PAT) toIdle(); }, 600);
-}
-function enterAnnoy() {
-  state = S.ANNOY;
-  patTimes = [];
-  setAnim('annoy');                            // 转身背对（镜像，独立状态，不被盯人覆盖）
-  say(pick('annoy'));
-  setTimeout(() => { if (state === S.ANNOY) toIdle(); }, cfg.timers.annoyDurationMs);
-}
+// 启动时就把四套全拉进内存。换装才能是纯 src 切换：
+// 本地文件也要走一次磁盘 IO，如果第一次切到某套时才现读，
+// 淡出之后会淡入一片空白。
+Object.keys(OUTFITS).forEach(loadFrames);
 
-// ---------- 待机 / 睡眠 ----------
-function enterSleep() {
-  state = S.SLEEP;
-  setAnim('sleep');
-  if (Math.random() < 0.5) say('……（睡着了。别吵。）');
-}
-function wake() {
-  state = S.IDLE;
-  setAnim(staring ? 'stare' : 'breathe');
-  rollCount = 0;
-  if (Math.random() < 0.4) say(pick('backTalk'));
-}
-
-// ---------- 待机跑动（先规划方向，绝不往屏幕外跑） ----------
-async function refreshScreenInfo() {
-  try { screenInfo = await window.pet.getScreenInfo(); } catch (e) {}
-}
-function startWalk() {
-  if (state !== S.IDLE) return;
-  let dir = Math.random() < 0.5 ? -1 : 1;
-  let dist = rand(...cfg.timers.walkDistancePx);
-  if (screenInfo) {
-    const { bounds, workArea } = screenInfo;
-    const roomLeft = bounds.x - workArea.x;
-    const roomRight = workArea.x + workArea.width - (bounds.x + bounds.width);
-    if (dist > (dir < 0 ? roomLeft : roomRight)) {
-      // 首选方向没空间 → 换另一侧；两侧都不够 → 取较大一侧并缩短距离
-      const other = dir < 0 ? roomRight : roomLeft;
-      if (dist <= other) dir = -dir;
-      else { dir = roomRight >= roomLeft ? 1 : -1; dist = Math.max(roomLeft, roomRight); }
-    }
-    if (dist < 30) return;                     // 两侧都没空间，放弃这次跑动
-  }
-  state = S.WALK;
-  setAnim('bob');
-  if (Math.random() < 0.5) say(pick('walkTalk'));
-  const dur = rand(...cfg.timers.walkDurationSec) * 1000;
-  const vx = dir * dist / dur;                 // px/ms
-  const t0 = performance.now();
-  let last = t0;
-  const step = (t) => {
-    if (state !== S.WALK) return;              // 被打断（用户回来/被拖/被摸）
-    // 兜底：窗口被遮挡时 rAF 可能长时间冻结，恢复后一次性补跑会瞬移——超时直接结束
-    if (t - t0 > dur * 3 + 1000) { walking = null; toIdle(); return; }
-    const dt = Math.min(50, t - last); last = t;
-    window.pet.moveBy(vx * dt, 0);
-    if (t - t0 < dur) walking = requestAnimationFrame(step);
-    else { walking = null; toIdle(); }
-  };
-  step(t0);
-}
-function stopWalk() {
-  if (walking) { cancelAnimationFrame(walking); walking = null; }
-}
-
-// ---------- 久坐提醒 ----------
-// 番茄钟/倒计时运行期间（pomoActive）：连续使用时长照常累计，但提醒全部静默——
-// 不弹台词也不弹挡屏；结束后若仍超过阈值会在下一秒自动补弹（shownLevels 未标记）。
-let pomoActive = false;
-window.pet.onPomoActive((on) => { pomoActive = !!on; });
-
-function checkReminders() {
-  if (settings.remindPaused || state === S.BLOCK) return;
-  if (pomoActive) return;                                    // 番茄钟静默（时长继续累计）
-  const levels = cfg.timers.remindMinutes;                   // [60,120,180,240]
-  const lineKeys = ['remind60', 'remind120', 'remind180', 'remind240'];
-  for (let i = levels.length - 1; i >= 0; i--) {
-    const sec = levels[i] * 60;
-    if (useSec >= sec && !shownLevels.has(i)) {
-      shownLevels.add(i);
-      if (i === levels.length - 1) enterBlock();             // 最高级：挡屏
-      else say(pick(lineKeys[i]), 4200);
-      break;
-    }
-  }
-}
-function enterBlock() {
-  state = S.BLOCK;
-  stopWalk();
-  document.body.classList.add('blocking');
-  window.pet.resizeBlockMode(true);                          // 铺满工作区（主进程记住原位置并隐藏气泡）
-  blockText.textContent = pick('remind240');
-  blockOverlay.classList.add('show');
-  // 兜底：10 分钟无响应自动让开，防止按钮点不到被卡死
-  clearTimeout(blockAutoReleaseTimer);
-  blockAutoReleaseTimer = setTimeout(() => { if (state === S.BLOCK) exitBlock(true); }, BLOCK_AUTO_RELEASE_MS);
-}
-function exitBlock(auto) {
-  clearTimeout(blockAutoReleaseTimer);
-  blockOverlay.classList.remove('show');
-  document.body.classList.remove('blocking');
-  window.pet.resizeBlockMode(false);                         // 精确还原挡屏前位置
-  useSec = 0;                                                // 重置连续使用计时
-  shownLevels.clear();
-  state = S.IDLE;
-  setAnim(staring ? 'stare' : 'breathe');
-  if (auto) say('……这次先放过你。下不为例。');
-}
-blockAck.addEventListener('click', () => exitBlock(false));
-
-// ---------- 交互：拖拽 / 摸头 / 右键 ----------
-// 结束拖拽并恢复一切状态（任何异常路径都要走这里，避免"粘住鼠标"）
-function endDrag(announce) {
-  const wasDragging = dragging;
-  pointerDown = false;
-  dragging = false;
-  if (state === S.DRAG) toIdle();
-  if (wasDragging && announce) say(pick('dragTalk'));        // 放下后的抱怨
-  if (wasDragging) refreshScreenInfo();      // 拖完刷新屏幕信息（下次跑动规划用）
-}
-
-document.addEventListener('mousedown', (e) => {
-  if (e.button !== 0 || !cfg) return;
-  pointerDown = true; dragging = false;
-  downClientX = e.clientX; downClientY = e.clientY;
-  lastScreenX = e.screenX; lastScreenY = e.screenY;
-});
-
-document.addEventListener('mousemove', (e) => {
-  if (!cfg) return;
-  // 兜底：系统层面按键已松开（例如在窗口外松手导致 mouseup 丢失）→ 立即结束拖拽
-  if (pointerDown && e.buttons === 0) endDrag(true);
-
-  wrap.style.cursor = pointerDown ? 'grabbing' : 'grab';
-
-  if (pointerDown) {
-    // 拖拽：按屏幕坐标位移移动窗口
-    const dx = e.screenX - lastScreenX, dy = e.screenY - lastScreenY;
-    lastScreenX = e.screenX; lastScreenY = e.screenY;
-    if (!dragging && Math.hypot(e.clientX - downClientX, e.clientY - downClientY) > DRAG_THRESHOLD) {
-      dragging = true;
-      stopWalk();
-      if (state !== S.BLOCK) {
-        state = S.DRAG;
-        setAnim('struggle');                                  // 被拖时挣扎
-        if (Math.random() < 0.6) say(pick('struggleTalk'));
-      }
-    }
-    if (dragging) window.pet.moveBy(dx, dy);
+// 换装：淡出 -> 换 src -> 淡入。
+// 直接赋值 src 会"啪"地跳一下（尺寸还不同，跳得更明显），
+// 160ms 的交叉淡入几乎不花成本，但换装手感完全是两回事。
+let swapTimer = null;
+function applyOutfit(key, immediate) {
+  if (!OUTFITS[key]) key = 'maid';
+  state.outfit = key;
+  window.pet.setSettings({ outfit: key });
+  clearTimeout(swapTimer);
+  if (immediate) {                       // 启动时不要淡入，否则开场白已经说了人还没出现
+    fBase.src = loadFrames(key).base.src;
+    paint();
     return;
   }
+  fBase.classList.remove('on');
+  swapTimer = setTimeout(() => {
+    fBase.src = loadFrames(key).base.src;
+    paint();
+  }, 150);
+}
+window.pet.onOutfit((k) => {
+  applyOutfit(k);
+  say(pick(QUOTES.outfit[k] || QUOTES.idle), 3600);
+  emote('✨');
+});
 
-  // 未按键：系统空闲跑动时用户动了鼠标 → 回 IDLE
-  if (idleSec < 5 && prevIdleSec >= cfg.timers.idleWalkSec) {
-    stopWalk();
-    if (state === S.WALK || state === S.SLEEP) wake();
-    else if (state === S.IDLE) toIdle();
+// 缩放（右键菜单 / Ctrl+滚轮）。窗口由主进程按"底边 + 水平中心"重排，
+// 渲染层只需要把新位置记下来 —— 否则下次启动会回到缩放前的位置。
+window.pet.onScale((k) => {
+  curScaleKey = k;
+  emote(k === 'small' ? '🔍' : k === 'large' ? '🔎' : '👌');
+  window.pet.getBounds().then((b) => { if (b) window.pet.savePos(b.x, b.y); });
+});
+
+// ---------- 动画 ----------
+const ANIMS = ['bounce', 'jump', 'shake', 'dangle', 'nod', 'spin', 'walk'];
+function anim(name, dur) {
+  ANIMS.forEach((c) => wrap.classList.remove(c));
+  void wrap.offsetWidth;                 // 强制重排，才能重启动画
+  wrap.classList.add(name);
+  if (dur) setTimeout(() => wrap.classList.remove(name), dur);
+}
+function setPose(cls) {                  // 互斥的待机姿态
+  ['breathe', 'sleep', 'focus'].forEach((c) => wrap.classList.remove(c));
+  if (cls) wrap.classList.add(cls);
+}
+
+// ---------- 说话 / 表情 ----------
+let bubbleTimer = null, typeTimer = null;
+function say(text, dur) {
+  if (!text) return;
+  clearTimeout(bubbleTimer); clearInterval(typeTimer);
+  bubble.classList.remove('hidden');
+  bubbleText.textContent = '';
+  let i = 0;
+  typeTimer = setInterval(() => {
+    bubbleText.textContent = text.slice(0, ++i);
+    if (i >= text.length) clearInterval(typeTimer);
+  }, 26);
+  bubbleTimer = setTimeout(() => bubble.classList.add('hidden'), dur || 3600);
+}
+function quote(arr, vars) {
+  const t = pick(arr);
+  if (!t) return;
+  say(t.replace(/\{name\}/g, vars || ''), 3200 + t.length * 55);
+}
+function emote(ch) {
+  const e = $('#emote');
+  e.textContent = ch;
+  e.classList.remove('hidden');
+  e.style.animation = 'none'; void e.offsetWidth; e.style.animation = '';
+  setTimeout(() => e.classList.add('hidden'), 1450);
+}
+function particles(chars, n) {
+  const box = $('#particles');
+  for (let i = 0; i < (n || 3); i++) {
+    setTimeout(() => {
+      const p = document.createElement('div');
+      p.className = 'pt';
+      p.textContent = rand(chars);
+      p.style.left = (28 + Math.random() * 44) + '%';
+      p.style.top = (34 + Math.random() * 26) + '%';
+      p.style.setProperty('--dx', ((Math.random() - .5) * 64) + 'px');
+      p.style.setProperty('--rot', ((Math.random() - .5) * 44) + 'deg');
+      box.appendChild(p);
+      setTimeout(() => p.remove(), 1800);
+    }, i * 200);
   }
+}
+function blush() {
+  const b = $('#blush');
+  b.classList.remove('on');
+  void b.offsetWidth;                    // 强制重排，动画才能重播
+  b.classList.add('on');
+}
+
+// ---------- 关于"眨眼" ----------
+// 已移除，并且**不要**再加回来。
+// 做过两版差分，都是废的：
+//   v1 —— 矩形 mask 走 inpaint，模型直接吐出灰块 / 黑条 / 蓝条。
+//   v2 —— 把眼区抹平再画一根眼睑弧线。睫毛、下眼睑、外眼角全部消失，
+//         只剩一根 1~2px 的细线；眼窝还因为填充算法留下灰霾。
+// 根因不是参数没调好，而是**雪乃的上眼睑是又粗又黑的睫毛线**：
+// 用程序合成画不出这个画法，用扩散模型局部重绘又会丢角色特征。
+// 想真正做对只有两条成熟路线：
+//   a) Live2D —— 眼睛是独立图层，眨眼是图层变换，不需要重绘。需要建模师。
+//   b) 差分立绘 —— 请画师（或拿到官方差分）画一张闭眼，直接用。
+// 两者都不是"再调一版算法"能解决的，所以先把这块去掉，
+// 改用叠加式腮红（#blush）承担情绪反馈。
+
+// ---------- 待机动作池 ----------
+const idlePool = [
+  () => { anim('nod', 900); quote(QUOTES.idle); },
+  () => { anim('spin', 1000); emote('♪'); },
+  () => { emote('…'); },
+  () => { particles(['❄', '☕', '📖'], 2); },
+  () => { anim('bounce', 560); },
+  () => { quote(QUOTES.idle); },
+  () => { anim('nod', 900); emote('👀'); }
+];
+(function idleLoop() {
+  setTimeout(() => {
+    if (state.mode === 'idle' && !sleeping) rand(idlePool)();
+    idleLoop();
+  }, 12000 + Math.random() * 14000);
+})();
+
+// ---------- 长时间无互动 -> 睡着 ----------
+let lastInteract = Date.now(), sleeping = false;
+function wakeUp() {
+  if (!sleeping) return false;
+  sleeping = false;
+  setPose('breathe');
+  quote(QUOTES.wake);
+  return true;
+}
+function sleepCheck() {
+  if (state.mode !== 'idle' || sleeping) return;
+  if (Date.now() - lastInteract > 3 * 60 * 1000) {
+    sleeping = true;
+    setPose('sleep');
+    quote(QUOTES.sleep);
+    emote('💤');
+  }
+}
+setInterval(sleepCheck, 20000);
+
+// ---------- 拖拽（自由落体 + 边缘吸附） ----------
+let dragging = false, dragOff = { x: 0, y: 0 }, pos = null;
+
+// 角色在窗口里实际占多宽。素材按 height:100% 落位，所以
+// 显示宽 = 素材宽 × (窗口高 / 素材高)。
+function spriteW(petH) {
+  const w = fBase.naturalWidth, h = fBase.naturalHeight;
+  if (!w || !h) return petH * WIN_W / WIN_H;   // 图还没解码完，按窗口比例估一个
+  return w * (petH / h);
+}
+
+// 松手时的横向吸附：把**角色的外轮廓**贴到屏幕边缘。
+// 不能夹窗口边缘 —— 角色在窗口里是水平居中的，而角色宽度往往远小于窗口宽度
+// （水手服只有 264px，窗口 404），夹窗口会在角色和屏幕边之间留一大条缝，
+// 看起来像"贴了个寂寞"。
+const SNAP = 26;
+function snapX(x, area, petW, sw) {
+  const left = x + (petW - sw) / 2;
+  const right = left + sw;
+  if (left - area.x < SNAP) return Math.round(area.x - (petW - sw) / 2);
+  if ((area.x + area.width) - right < SNAP) {
+    return Math.round(area.x + area.width - petW + (petW - sw) / 2);
+  }
+  return Math.round(x);
+}
+
+wrap.addEventListener('mousedown', (e) => {
+  if (e.button !== 0) return;
+  dragging = true;
+  lastInteract = Date.now();
+  wakeUp();
+  wrap.classList.add('grabbing');
+  anim('dangle');
+  quote(QUOTES.drag);
+  emote('💢');
+  window.pet.setBlock(true);       // 拖拽期间停掉几何巡检，免得跟手的动作抢
+  window.pet.getBounds().then((b) => {
+    if (!b) return;
+    pos = { x: b.x, y: b.y };
+    dragOff = { x: e.screenX - b.x, y: e.screenY - b.y };
+  });
 });
 
-document.addEventListener('mouseup', (e) => {
-  if (e.button !== 0 || !cfg) return;
-  if (!pointerDown) return;
-  const wasDragging = dragging;
-  endDrag(true);                             // 统一复位
-  if (!wasDragging && state !== S.BLOCK) pat();             // 短按（没拖动）= 摸头
+window.addEventListener('mousemove', (e) => {
+  if (!dragging || !pos) return;
+  pos = { x: e.screenX - dragOff.x, y: e.screenY - dragOff.y };
+  window.pet.moveTo(pos.x, pos.y);
 });
 
-// 兜底：指针被系统取消 / 窗口失焦 → 复位，防止状态卡死
-document.addEventListener('pointercancel', () => endDrag(false));
-window.addEventListener('blur', () => endDrag(false));
+let fallRAF = 0;
+// 松手后的收尾：垂直自由落体 + 水平匀速滑向吸附位。
+// 水平**不加**速度渐变 —— 加了看起来像被"吸"过去，匀速才像自己挪过去。
+function settle(x0, y0, x1, y1) {
+  const finish = () => {
+    anim('bounce', 560);
+    quote(QUOTES.drop);
+    particles(['💥'], 1);
+    window.pet.savePos(x1, y1);     // 记住她停在哪，重启不会再回到右上角
+  };
+  if (y0 >= y1 - 1 && Math.abs(x1 - x0) < 2) {
+    window.pet.moveTo(x1, y1);
+    finish();
+    return;
+  }
+  let x = x0, y = y0, v = 2;
+  const step = () => {
+    if (dragging) return;
+    if (y < y1) { v = Math.min(v + 2.0, 34); y = Math.min(y + v, y1); } else { y = y1; }
+    const dx = x1 - x;
+    x = Math.abs(dx) <= 6 ? x1 : x + Math.sign(dx) * 6;
+    window.pet.moveTo(x, y);
+    if (y === y1 && x === x1) { finish(); return; }
+    fallRAF = requestAnimationFrame(step);
+  };
+  step();
+}
 
-// 双击：切换"抱臂盯人"伪姿态（独立状态，取代 breathe，才能真正显示出来）
-document.addEventListener('dblclick', () => {
-  if (state === S.BLOCK || !cfg) return;
-  staring = !staring;
-  setAnim(staring ? 'stare' : 'breathe');
-  if (staring) say(pick('stareTalk'));
-});
+function endDrag() {
+  if (!dragging) return;
+  dragging = false;
+  cancelAnimationFrame(fallRAF);
+  wrap.classList.remove('grabbing');
+  window.pet.setBlock(false);
+  const p = pos; pos = null;
+  Promise.all([window.pet.getWorkArea(), window.pet.getBounds()]).then(([area, b]) => {
+    const petW = (b && b.width) || area.petW || WIN_W;
+    const petH = (b && b.height) || area.petH || WIN_H;
+    const targetY = groundY(area);
+    let x = p ? p.x : (b ? b.x : 0);
+    const y = p ? p.y : targetY;
+    x = snapX(x, area, petW, spriteW(petH));
+    // 原来这里是 `if (startY < targetY) fall(); else 只弹一下不移动` ——
+    // 那个 else 什么都不做，于是每拖一次就往下沉一截，拖几次人整个掉出屏幕。
+    // 现在两条分支都走 settle()，不存在"什么都不做"的出口。
+    settle(x, y, x, targetY);
+  });
+}
+window.addEventListener('mouseup', endDrag);
+window.addEventListener('blur', endDrag);   // 鼠标甩出窗口、收不到 mouseup 时兜底
 
-// 右键：整个窗口都是她，直接弹菜单
-document.addEventListener('contextmenu', (e) => {
+// ---------- Ctrl + 滚轮缩放 ----------
+// 只认 Ctrl，普通滚轮不劫持 —— 不然鼠标无意中在桌宠上滚一下就变了大小。
+window.addEventListener('wheel', (e) => {
+  if (!e.ctrlKey) return;
   e.preventDefault();
-  if (cfg) window.pet.showContextMenu();
-});
-
-// 滚轮缩放：Ctrl + 滚轮 或 直接在角色上滚轮
-document.addEventListener('wheel', (e) => {
-  if (!cfg || state === S.BLOCK) return;
-  e.preventDefault();
-  changeZoom(e.deltaY < 0 ? 1.1 : 1 / 1.1);
+  const i = SIZE_ORDER.indexOf(curScaleKey);
+  const next = SIZE_ORDER[Math.min(SIZE_ORDER.length - 1, Math.max(0, i + (e.deltaY > 0 ? -1 : 1)))];
+  if (next === curScaleKey) return;
+  window.pet.setSettings({ scale: next });   // 主进程改窗口 -> 回广播 'scale'
 }, { passive: false });
 
-// 快捷键：Ctrl+1~4 换服装，Ctrl+=/-/0 缩放（需点击过桌宠让窗口获得焦点）
-document.addEventListener('keydown', (e) => {
-  if (!cfg || !e.ctrlKey) return;
-  if (e.key === '=' || e.key === '+') { changeZoom(1.15); e.preventDefault(); }
-  else if (e.key === '-' || e.key === '_') { changeZoom(1 / 1.15); e.preventDefault(); }
-  else if (e.key === '0') { applyZoom(1); window.pet.setZoom(1); e.preventDefault(); }
-  else if (['1', '2', '3', '4'].includes(e.key)) {
-    const i = Number(e.key) - 1;
-    if (i < cfg.outfits.length) { setOutfit(i); e.preventDefault(); }
+// ---------- 点击 / 双击 ----------
+let clickCount = 0, clickTimer = null;
+wrap.addEventListener('click', () => {
+  lastInteract = Date.now();
+  if (wakeUp()) return;
+  clickCount++;
+  if (clickCount === 1) {
+    clickTimer = setTimeout(() => {
+      clickCount = 0;
+      anim('bounce', 560);
+      quote(QUOTES.click);
+      emote(rand(['❓', '❗', '…']));
+    }, 250);
+  } else {
+    clearTimeout(clickTimer);
+    clickCount = 0;
+    anim('jump', 720);
+    quote(QUOTES.doubleClick);
+    particles(['💗', '✨', '💕'], 5);
+    blush();
   }
 });
 
-// ---------- 主循环 ----------
-// 连续使用计时规则：
-//  - 系统空闲 < awayThresholdSec（默认 300s）都算"人在"（看视频/读文档也累计）
-//  - 空闲 ≥ awayThresholdSec 判定为离开，回来后从零重算（等于休息过了）
-//  - 用墙钟差检测系统休眠/定时器挂起：挂起期间不计入使用（这就是 uptime 校准的作用）
-window.pet.onIdleTime((t) => { prevIdleSec = idleSec; idleSec = t; });
-let lastTickAt = Date.now();
-setInterval(() => {
-  if (!cfg) return;
-  const now = Date.now();
-  const elapsedMs = now - lastTickAt;
-  lastTickAt = now;
-  const suspended = elapsedMs > 4000;          // 系统刚睡过/定时器被挂起，这段时间不算使用
-  const awaySec = cfg.timers.awayThresholdSec;
+// ---------- 目光跟随 + 摸头（共用一个 mousemove） ----------
+// 目光跟随：鼠标在窗口里时整层微移。幅度刻意做小（横 ±5px / 纵 ±2.5px）——
+// 大了就变成"人物在飘"，而不是"转头看你"；配合 #lookWrap 上 .45s 的缓动才像有意识。
+let patTimer = null;
+function lookAt(e) {
+  const r = wrap.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  const nx = Math.max(-.5, Math.min(.5, (e.clientX - r.left) / r.width - .5));
+  const ny = Math.max(-.5, Math.min(.5, (e.clientY - r.top) / r.height - .5));
+  lookWrap.style.transform =
+    'translate(' + (nx * 10).toFixed(1) + 'px,' + (ny * 5).toFixed(1) + 'px)';
+}
+function lookAway() { lookWrap.style.transform = ''; }
 
-  if (idleSec >= awaySec) {
-    if (useSec > 0) { useSec = 0; shownLevels.clear(); }   // 休息满 5 分钟：清零重算
-  } else if (!suspended && state !== S.BLOCK) {
-    useSec++;
-    checkReminders();
-  }
-
-  // 睡眠判定：空闲超过 sleepSec
-  if (state === S.IDLE && idleSec >= cfg.timers.sleepSec) { enterSleep(); return; }
-  // 待机闲聊（v1.7.0）：人在电脑前（空闲 1~5 分钟）但没摸她时，偶尔自言自语——
-  // 天气、吐槽、关心。低频（每 30 秒 roll 一次、8% 概率、两次间隔 ≥3 分钟），睡着/跑动/盯人不说话
-  if (state === S.IDLE && idleSec >= 60 && idleSec < cfg.timers.awayThresholdSec) {
-    idleChatCount++;
-    if (idleChatCount >= cfg.timers.walkRollSec) {
-      idleChatCount = 0;
-      if (Date.now() - lastIdleChatAt > 180000 && Math.random() < 0.08) {
-        lastIdleChatAt = Date.now();
-        say(pick('idleTalk'), 4200);
-      }
+wrap.addEventListener('mousemove', (e) => {
+  if (!dragging) lookAt(e);
+  const r = wrap.getBoundingClientRect();
+  const inHead = (e.clientY - r.top) < r.height * 0.32;
+  if (inHead) {
+    if (!patTimer) {
+      patTimer = setTimeout(() => {
+        patTimer = null;
+        lastInteract = Date.now();
+        particles(['💗', '♡', '✨'], 5);
+        quote(QUOTES.pat);
+        anim('nod', 900);
+        blush();
+      }, 1100);
     }
+  } else if (patTimer) {
+    clearTimeout(patTimer);
+    patTimer = null;
   }
-  // 待机跑动：空闲超过 idleWalkSec 后，每 walkRollSec 秒 roll 一次，walkChance 概率触发
-  if (state === S.IDLE && idleSec >= cfg.timers.idleWalkSec) {
-    rollCount++;
-    if (rollCount >= cfg.timers.walkRollSec) {
-      rollCount = 0;
-      if (Math.random() < cfg.timers.walkChance) startWalk();
-    }
-  }
-}, 1000);
+});
+wrap.addEventListener('mouseleave', () => {
+  lookAway();
+  if (patTimer) { clearTimeout(patTimer); patTimer = null; }
+});
 
-// ---------- 心跳：每 5 秒向主进程报活（静默假死时主进程看门狗会重载本页面） ----------
-setInterval(() => window.pet.heartbeat(), 5000);
+// 鼠标靠近就把睡着的人叫醒 —— 不用点，路过就醒，比"必须点一下"自然得多。
+// 但要等一下（350ms）：鼠标只是路过时不该把她吵醒。
+let nearTimer = null;
+wrap.addEventListener('mouseenter', () => {
+  if (!sleeping) return;
+  nearTimer = setTimeout(() => { nearTimer = null; wakeUp(); }, 350);
+});
+wrap.addEventListener('mouseleave', () => {
+  if (nearTimer) { clearTimeout(nearTimer); nearTimer = null; }
+});
+
+// ---------- 右键菜单 ----------
+wrap.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  window.pet.showMenu();
+});
+
+// ---------- 走动 ----------
+async function walk() {
+  if (state.mode !== 'idle') return;
+  state.mode = 'walk';
+  wakeUp();
+  quote(QUOTES.walk);
+  anim('walk');
+  const area = await window.pet.getWorkArea();
+  const b = await window.pet.getBounds();
+  if (!b) { state.mode = 'idle'; setPose('breathe'); return; }
+
+  const dir = Math.random() < .5 ? -1 : 1;
+  let x = b.x;
+  const y = groundY(area);
+  // 用 getBounds() 的实际宽度，不用常量 —— 缩放后窗口宽度是变的
+  const target = Math.min(Math.max(x + dir * (140 + Math.random() * 320), area.x),
+                          area.x + area.width - b.width);
+  fBase.style.transform = 'translateX(-50%) scaleX(' + (dir < 0 ? -1 : 1) + ')';
+
+  const step = () => {
+    if (state.mode !== 'walk') return;
+    if (Math.abs(x - target) < 3) { endWalk(); return; }
+    x += dir * 2.6;
+    window.pet.moveTo(x, y);
+    requestAnimationFrame(step);
+  };
+  step();
+  setTimeout(() => { if (state.mode === 'walk') endWalk(); }, 5200);
+
+  function endWalk() {
+    state.mode = 'idle';
+    ANIMS.forEach((c) => wrap.classList.remove(c));
+    fBase.style.transform = '';
+    setPose('breathe');
+    // 走完也记一下位置：不然她走到屏幕另一头，重启后又回原处
+    window.pet.getBounds().then((nb) => { if (nb) window.pet.savePos(nb.x, nb.y); });
+  }
+}
+
+// ---------- 番茄钟 ----------
+let pom = null;
+const fmt = (s) => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+
+document.querySelectorAll('.chip').forEach((c) => c.addEventListener('click', () => {
+  document.querySelectorAll('.chip').forEach((x) => x.classList.remove('active'));
+  c.classList.add('active');
+}));
+
+function openPomodoro() {
+  if (state.mode === 'pomodoro') return;
+  panel.classList.remove('hidden');
+  pomRun.classList.add('hidden');
+  pomForm.classList.remove('hidden');
+  pomInput.focus();
+}
+
+$('#btnStart').addEventListener('click', () => {
+  const chip = document.querySelector('.chip.active') || document.querySelector('.chip');
+  const mins = parseInt(chip.dataset.min, 10) || 25;
+  const name = pomInput.value.trim() || '未命名番茄';
+  pom = { name, total: mins * 60, left: mins * 60, paused: false, quarterSaid: false, startedAt: Date.now() };
+  state.mode = 'pomodoro';
+  sleeping = false;
+
+  pomForm.classList.add('hidden');
+  pomRun.classList.remove('hidden');
+  pomNameEl.textContent = name;
+  badge.classList.remove('hidden');
+  badgeName.textContent = name;
+  badgeTime.textContent = fmt(pom.left);
+  setPose('focus');
+  quote(QUOTES.pomStart, name);
+  emote('📖');
+  pom.timer = setInterval(tick, 1000);
+});
+
+function tick() {
+  if (!pom || pom.paused) return;
+  pom.left--;
+  if (pom.left < 0) pom.left = 0;
+  badgeTime.textContent = fmt(pom.left);
+  pomTimeEl.textContent = fmt(pom.left);
+  const passed = pom.total - pom.left;
+  if (!pom.quarterSaid && passed >= Math.floor(pom.total / 4)) {
+    pom.quarterSaid = true;
+    quote(QUOTES.pomQuarter);
+    emote('☕');
+  }
+  if (pom.left <= 0) finishPomodoro(true);
+}
+
+function finishPomodoro(completed) {
+  if (!pom) return;
+  clearInterval(pom.timer);
+  const minutes = Math.max(1, Math.round((pom.total - pom.left) / 60));
+  window.pet.addRecord({
+    name: pom.name, minutes, completed,
+    startedAt: pom.startedAt, endedAt: Date.now(), planned: Math.round(pom.total / 60)
+  });
+  badge.classList.add('hidden');
+  panel.classList.add('hidden');
+  pomRun.classList.add('hidden');
+  pomForm.classList.remove('hidden');
+  setPose('breathe');
+  state.mode = 'idle';
+
+  if (completed) {
+    anim('jump', 720);
+    particles(['🎉', '✨', '☕', '💯'], 7);
+    quote(QUOTES.pomDone, pom.name);
+    emote('🎉');
+    blush();
+  } else {
+    quote(QUOTES.pomAbandon, pom.name);
+    emote('💧');
+  }
+  pom = null;
+}
+
+$('#btnPause').addEventListener('click', () => {
+  if (!pom) return;
+  pom.paused = !pom.paused;
+  $('#btnPause').textContent = pom.paused ? '继续' : '暂停';
+  if (pom.paused) emote('⏸'); else quote(QUOTES.pomQuarter);
+});
+$('#btnStop').addEventListener('click', () => finishPomodoro(false));
+$('#btnStats').addEventListener('click', () => window.pet.showStats());
+$('#btnStats2').addEventListener('click', () => window.pet.showStats());
+
+// 点面板外部收起
+document.addEventListener('mousedown', (e) => {
+  if (state.mode === 'idle' && !panel.classList.contains('hidden') && !panel.contains(e.target)) {
+    panel.classList.add('hidden');
+  }
+});
+
+window.pet.onAction((a) => {
+  if (a === 'walk') walk();
+  if (a === 'open-pomodoro') openPomodoro();
+});
 
 // ---------- 启动 ----------
-(async function boot() {
-  const bootData = await window.pet.getBoot();
-  cfg = bootData.config;
-  settings = bootData.settings;
-
-  applyZoom(settings.zoom || 1);          // 恢复上次的缩放
-
-  // 四套立绘全部开始加载，应用各自的 scale/offset 微调
-  imgs.forEach((img, i) => {
-    img.src = '../assets/outfits/' + cfg.outfits[i].file;
-    applyFit(img, cfg.outfits[i]);
-  });
-  await Promise.all(imgs.map(img => img.decode().catch(() => null)));
-
-  const o = settings.outfit;
-  activeIdx = (Number.isInteger(o) && o >= 0 && o < cfg.outfits.length) ? o : 0;
-  imgs[activeIdx].classList.add('active');
-
-  window.pet.onSetOutfit((i) => setOutfit(i));
-  window.pet.onSettingsChanged((s) => { settings = s; });
-  window.pet.onApplyZoom((z) => applyZoom(z));   // 菜单里点了放大/缩小
-
-  window.pet.heartbeat();                 // 启动即报活
-  refreshScreenInfo();
-
-  // 开场台词
-  setTimeout(() => say(pick('startup'), 3600), 900);
+(async () => {
+  const s = await window.pet.getSettings();
+  if (s.scale) curScaleKey = s.scale;
+  applyOutfit(s.outfit || 'maid', true);   // 首次不做淡入，别让开场白先于人出现
+  setPose('breathe');
+  const h = new Date().getHours();
+  setTimeout(() => {
+    if (h >= 23 || h < 5) quote(QUOTES.night);
+    else if (h < 11) quote(QUOTES.morning);
+    else quote(QUOTES.greeting);
+  }, 700);
 })();
+
+// ---------- 心跳（主进程靠它判断渲染层是否假死） ----------
+setInterval(() => window.pet.heartbeat(), 5000);
+
+// ---------- 调试出口 ----------
+// 只给 renderer/preview.html 用（它会在加载本文件前设置 window.__PET_DEBUG__ = true）。
+// 真机上这个开关永远是 undefined，所以这些内部函数不会泄露到 window 上，
+// 免得渲染层多出一堆可被外部脚本乱调的全局入口。
+if (window.__PET_DEBUG__) {
+  window.__petDemo = {
+    blush, anim, emote, particles, quote,
+    walk, openPomodoro, applyOutfit,
+    lookAt, lookAway,
+    // 验收"边缘吸附"用：把角色放到指定 x，然后走一遍真实的松手收尾
+    // （scrub -> snapX -> settle），不是另写一段演示逻辑。
+    dropAt(px, py) {
+      return Promise.all([window.pet.getWorkArea(), window.pet.getBounds()]).then(([area, b]) => {
+        if (!b) return null;
+        const sw = spriteW(b.height);
+        const sx = snapX(px, area, b.width, sw);
+        const ty = groundY(area);
+        settle(sx, (py === undefined ? ty : py), sx, ty);
+        return { dropped: px, snapped: sx, sw: Math.round(sw) };
+      });
+    },
+    setScale: (k) => window.pet.setSettings({ scale: k }),
+    sleep() {
+      if (state.mode !== 'idle' || sleeping) return;
+      sleeping = true;
+      setPose('sleep');
+      quote(QUOTES.sleep);
+      emote('💤');
+    },
+    forceSleep() { lastInteract = Date.now() - 4 * 60 * 1000; sleepCheck(); },
+    wake: wakeUp,
+    pet(k) {
+      // 走一遍和真机右键菜单完全相同的路径：主进程发 outfit -> 渲染层 onOutfit
+      window.pet._fireOutfit && window.pet._fireOutfit(k);
+    },
+    action(a) { window.pet._fireAction && window.pet._fireAction(a); },
+    getState: () => ({ ...state, sleeping, hasPom: !!pom, scale: curScaleKey })
+  };
+}

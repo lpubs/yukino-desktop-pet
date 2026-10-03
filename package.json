@@ -1,14 +1,42 @@
 {
   "name": "yukino-pet",
-  "version": "1.7.0",
-  "description": "雪之下雪乃桌宠（四套服装 / 摸头互动 / 久坐提醒 / 待机跑动 / 缩放 / 番茄钟）",
+  "version": "3.2.0",
+  "description": "雪之下雪乃桌面宠物 · Electron 透明置顶 · 纯 Python 抠图四套装扮 · 三档缩放 · 摸头/番茄钟",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "node tools/stage.js && electron-packager release-src YukinoPet --platform=win32 --arch=x64 --out=release --overwrite --icon=release-src/assets/icon.ico"
+    "selftest": "node tools/selftest.js",
+    "build:win": "electron-builder --win --x64",
+    "build:dir": "electron-builder --win --x64 --dir"
   },
+  "author": "yukino-desktop-pet contributors",
+  "license": "MIT",
+  "keywords": [
+    "electron",
+    "desktop-pet",
+    "fan-made",
+    "transparent-window",
+    "pomodoro"
+  ],
   "devDependencies": {
-    "@electron/packager": "^18.4.4",
-    "electron": "^44.4.5"
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.yukino.desktop-pet",
+    "productName": "雪乃桌宠",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "preload.js", "clamp.js", "renderer/**/*", "assets/**/*"],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "雪乃桌宠"
+    }
   }
 }

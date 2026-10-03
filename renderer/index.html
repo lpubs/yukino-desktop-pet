@@ -1,34 +1,75 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8" />
-  <!-- 显式声明 img-src：file:// 文档的 origin 是 opaque，只靠 'self' 匹配本地图片不可靠 -->
-  <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data:;" />
-  <link rel="stylesheet" href="style.css" />
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>雪乃桌宠</title>
+<link rel="stylesheet" href="pet.css">
 </head>
 <body>
-  <div id="stage">
-    <!-- 角色层：窗口即立绘大小，四套立绘叠放在同一位置，切换时淡入淡出 -->
-    <div id="sprite-wrap">
-      <div id="sprite-inner">
-        <img class="outfit" id="outfit0" alt="" draggable="false" />
-        <img class="outfit" id="outfit1" alt="" draggable="false" />
-        <img class="outfit" id="outfit2" alt="" draggable="false" />
-        <img class="outfit" id="outfit3" alt="" draggable="false" />
-        <!-- 脸红效果（摸头时一闪而过） -->
-        <div id="blush"></div>
-      </div>
-    </div>
 
-    <!-- 240 分钟挡屏遮罩（挡屏时窗口临时铺满工作区） -->
-    <div id="block-overlay">
-      <div id="block-panel">
-        <p id="block-text"></p>
-        <button id="block-ack">我知道了</button>
-      </div>
+<!-- 倒计时徽章 -->
+<div id="badge" class="hidden">
+  <span id="badgeName">专注</span>
+  <span id="badgeTime">25:00</span>
+</div>
+
+<!-- 对话气泡 -->
+<div id="bubble" class="hidden"><span id="bubbleText"></span></div>
+
+<!-- 角色舞台 -->
+<div id="stage">
+  <div id="petWrap">
+    <!-- 目光跟随层：鼠标在窗口里移动时整层做几百毫秒的微位移，
+         看起来像"转头看你"。单独一层是为了不和 #petWrap 上的呼吸/跳跃
+         动画抢同一个 transform（两个动画写同一个属性会互相覆盖）。 -->
+    <div id="lookWrap">
+      <img id="fBase" class="frame on" alt="雪之下雪乃" draggable="false">
+      <!-- 害羞腮红：双击 / 摸头 / 番茄完成的正向反馈。
+           走纯 CSS，不重绘五官 —— 见 pet.css 里的说明。 -->
+      <div id="blush"><i></i><i></i></div>
     </div>
   </div>
-  <script src="pet.js"></script>
+</div>
+
+<!-- 漂浮表情 / 粒子 -->
+<div id="emote" class="hidden"></div>
+<div id="particles"></div>
+
+<!-- 番茄钟面板 -->
+<div id="panel" class="hidden">
+  <div class="phead">番茄钟</div>
+
+  <div id="pomForm">
+    <input id="pomInput" type="text" maxlength="12" placeholder="给这段时间起个名字（如 高数）" autocomplete="off">
+    <div class="chips">
+      <span class="chip" data-min="15">15</span>
+      <span class="chip" data-min="25">25</span>
+      <span class="chip" data-min="45">45</span>
+      <span class="chip" data-min="60">60</span>
+      <span class="chip active" data-min="30">30</span>
+    </div>
+    <div class="prow">
+      <button id="btnStart" class="primary">开始</button>
+      <button id="btnStats2">统计</button>
+    </div>
+  </div>
+
+  <div id="pomRun" class="hidden">
+    <div class="running">
+      <div id="pomName" class="pname">—</div>
+      <div id="pomTime" class="ptime">30:00</div>
+    </div>
+    <div class="prow">
+      <button id="btnPause">暂停</button>
+      <button id="btnStop">放弃</button>
+      <button id="btnStats">统计</button>
+    </div>
+  </div>
+</div>
+
+<script src="dialogue.js"></script>
+<script src="pet.js"></script>
 </body>
 </html>

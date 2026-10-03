@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>雪乃桌宠 · 浏览器预览</title>
+<link rel="stylesheet" href="pet.css">
+<style>
+  /* 只在预览页生效：给透明窗口一个假桌面背景，方便看效果 */
+  html, body { background: #dfe4ee; }
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(circle at 22% 18%, rgba(255,255,255,.75), transparent 42%),
+      linear-gradient(150deg, #cfd9ea 0%, #e7ecf5 55%, #dbe3f0 100%);
+  }
+  .demo-bar {
+    position: fixed; top: 10px; left: 10px; z-index: 999;
+    display: flex; gap: 6px; flex-wrap: wrap; max-width: 460px;
+    font: 12px/1.5 "Microsoft YaHei", system-ui, sans-serif;
+  }
+  .demo-bar button {
+    padding: 5px 11px; border: 1px solid #b9c2d4; background: rgba(255,255,255,.9);
+    border-radius: 8px; cursor: pointer; font: inherit; color: #2f3a52;
+  }
+  .demo-bar button:hover { background: #fff; border-color: #8f9db8; }
+  .demo-note {
+    position: fixed; bottom: 10px; left: 10px; z-index: 999; max-width: 400px;
+    font: 12px/1.7 "Microsoft YaHei", system-ui, sans-serif; color: #4d5464;
+    background: rgba(255,255,255,.88); padding: 8px 11px; border-radius: 8px;
+    border: 1px solid rgba(120,130,160,.22);
+  }
+  .demo-note b { color: #2f3a52; }
+  #state-readout {
+    position: fixed; top: 10px; right: 10px; z-index: 999;
+    font: 11px/1.6 Consolas, "Courier New", monospace; color: #4d5464;
+    background: rgba(255,255,255,.88); padding: 6px 9px; border-radius: 8px;
+    border: 1px solid rgba(120,130,160,.22); white-space: pre;
+  }
+
+  /* 把"整个窗口"变成真实视口里的一块。
+     #stage 用 position:fixed + translate 充当窗口，于是里面所有 position:absolute 的
+     气泡 / 徽章 / 面板 / 粒子都像在真机窗口里一样相对它定位 —— 不用改 pet.css 一行。
+     主进程的 moveTo 在预览里换算成 translate，所以"走两步"也看得见。
+
+     注意：这里**故意不**用 inset: auto 40px 0 auto 去把它摆在角落。
+     虚拟工作区就是浏览器视口本身，舞台坐标 = 屏幕坐标，这样"贴左边缘"
+     "被拖到屏幕外再夹回来"这类演示，读数与像素才对得上。
+     （pet.css 里 #stage 是 `inset: 0`，所以这里必须显式写全 left/top 覆盖掉。） */
+  #stage { position: fixed; left: 0; top: 0; width: 404px; height: 400px; }
+</style>
+</head>
+<body>
+
+<div class="demo-bar">
+  <button data-demo="blush">腮红</button>
+  <button data-demo="click">单击</button>
+  <button data-demo="double">双击</button>
+  <button data-demo="pat">摸头</button>
+  <button data-demo="look">目光跟随</button>
+  <button data-demo="sleep">睡着</button>
+  <button data-demo="walk">走两步</button>
+  <button data-demo="pomodoro">番茄钟</button>
+  <button data-demo="outfit">换装（轮流）</button>
+  <button data-demo="scale">缩放（轮流）</button>
+  <button data-demo="seed">灌示例数据</button>
+  <button data-demo="stats">看统计</button>
+  <button data-demo="dropL">松手贴左边缘</button>
+  <button data-demo="offscreen">拖出屏幕试试</button>
+</div>
+<div id="state-readout">state: -</div>
+<div class="demo-note">
+  <b>浏览器预览</b>：真机上这些是透明浮在桌面上的，这里只是垫个背景方便看。<br>
+  素材、状态机、台词、番茄钟走的是和真机<b>完全同一份</b> pet.js。
+</div>
+
+<div id="stage">
+  <!-- 与 index.html 的 DOM 层级保持一致：气泡/徽章/面板/粒子都在"窗口"内 -->
+  <div id="badge" class="hidden">
+    <span id="badgeName">专注</span><span id="badgeTime">25:00</span>
+  </div>
+  <div id="bubble" class="hidden"><span id="bubbleText"></span></div>
+
+  <div id="petWrap">
+    <div id="lookWrap">
+      <img id="fBase" class="frame on" alt="雪之下雪乃" draggable="false">
+      <div id="blush"><i></i><i></i></div>
+    </div>
+  </div>
+
+  <div id="emote" class="hidden"></div>
+  <div id="particles"></div>
+
+  <div id="panel" class="hidden">
+    <div class="phead">番茄钟</div>
+    <div id="pomForm">
+      <input id="pomInput" type="text" maxlength="12" placeholder="给这段时间起个名字（如 高数）" autocomplete="off">
+      <div class="chips">
+        <span class="chip" data-min="15">15</span>
+        <span class="chip" data-min="25">25</span>
+        <span class="chip" data-min="45">45</span>
+        <span class="chip" data-min="60">60</span>
+        <span class="chip active" data-min="30">30</span>
+      </div>
+      <div class="prow">
+        <button id="btnStart" class="primary">开始</button>
+        <button id="btnStats2">统计</button>
+      </div>
+    </div>
+    <div id="pomRun" class="hidden">
+      <div class="running"><div id="pomName" class="pname">—</div><div id="pomTime" class="ptime">30:00</div></div>
+      <div class="prow">
+        <button id="btnPause">暂停</button><button id="btnStop">放弃</button><button id="btnStats">统计</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 位置约束：与 main.js require 的是同一个文件，所以预览里"拖不出屏幕"
+     和真机里是同一段逻辑，不是"看起来像" -->
+<script src="../clamp.js"></script>
+<script>
+// 打开调试出口（pet.js 末尾那段用），必须在 pet.js 之前设置
+window.__PET_DEBUG__ = true;
+
+// ---- 无 Electron 时的 API 替身，好让 pet.js 原样跑起来 ----
+// 注意 onOutfit / onAction 在真机 preload 里是"注册回调"语义（ipcRenderer.on），
+// 所以替身也必须把回调存下来，并另外给一个 _fire 入口供演示按钮触发。
+// 虚拟工作区 = 浏览器视口。让坐标读数和像素位置一一对应。
+const WORK_AREA = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
+// 与 main.js 的 OUTFIT_SINK 保持一致。四套都是半身像（参考图在大腿处切断、
+// 原画没画脚），所以统一 40 —— 把那刀切面沉到"任务栏"后面。
+const SINK = { maid: 40, sailor: 40, coat: 40, winter: 40 };
+// 与 main.js 的 BASE_W / BASE_H、SIZES 一致。替身必须把缩放也算进去，
+// 否则浏览器里"贴左边缘"和真机会差一截，验收就白做了。
+const BASE_W = 404, BASE_H = 400;
+const SIZES = { small: 0.72, medium: 1, large: 1.28 };
+// 素材原始尺寸（宽,高）。真机里主进程直接读 PNG 头拿这个（见 main.js 的 pngSize），
+// 这里硬编码是没办法 —— 浏览器里读不到文件头。**selftest 会断言这张表和
+// 真实 PNG 尺寸一致**，所以它不会悄悄过期。
+const SPRITE = { maid: [544, 560], sailor: [263, 560], coat: [412, 560], winter: [293, 560] };
+let winW = BASE_W, winH = BASE_H;
+// 初始站在右下角，离右边 60px —— 与 main.js 的 createPet 默认位置一致
+const ORIGIN = {
+  x: WORK_AREA.width - winW - 60,
+  y: WORK_AREA.height - winH + SINK.maid
+};
+
+// 与 main.js 的 padXOf 同式：角色水平居中，两侧的透明边不参与夹取。
+function padXFor(outfit) {
+  const s = SPRITE[outfit];
+  if (!s) return 0;
+  return Math.max(0, Math.round((winW - s[0] * (winH / s[1])) / 2));
+}
+function clampVirtual(x, y) {
+  const of = window.pet._settings.outfit;
+  return PetClamp.clampPos(x, y, WORK_AREA, winW, winH, SINK[of] || 0, padXFor(of));
+}
+
+const callbacks = { outfit: [], action: [], scale: [] };
+let virtualPos = Object.assign({}, ORIGIN);
+
+function syncStage() {
+  const st = document.getElementById('stage');
+  if (!st) return;
+  st.style.width = winW + 'px';
+  st.style.height = winH + 'px';
+  // 舞台坐标 = 屏幕坐标，直接平移（不再减 ORIGIN）
+  st.style.transform = 'translate(' + virtualPos.x + 'px,' + virtualPos.y + 'px)';
+}
+
+window.pet = {
+  _settings: { outfit: 'maid', pinned: true, scale: 'medium' },
+
+  getRecords: async () => JSON.parse(localStorage.getItem('pom_demo') || '[]'),
+  addRecord: async (r) => {
+    const l = JSON.parse(localStorage.getItem('pom_demo') || '[]');
+    l.push(r);
+    localStorage.setItem('pom_demo', JSON.stringify(l));
+    return true;
+  },
+  clearAll: async () => { localStorage.setItem('pom_demo', '[]'); return true; },
+
+  getSettings: async () => window.pet._settings,
+  setSettings: async (s) => {
+    Object.assign(window.pet._settings, s);
+    if (s.scale) applyVirtualScale(s.scale);
+    return window.pet._settings;
+  },
+
+  setPinned: async (v) => (window.pet._settings.pinned = !!v),
+  moveTo: (x, y) => {
+    // 走真实约束。夹不夹得住，直接看角色会不会跑出舞台就知道。
+    virtualPos = clampVirtual(x, y);
+    syncStage();
+    return virtualPos;
+  },
+  savePos: async (x, y) => (window.pet._settings.pos = clampVirtual(x, y)),
+  getBounds: async () => ({ x: virtualPos.x, y: virtualPos.y, width: winW, height: winH }),
+  getWorkArea: async () => Object.assign({}, WORK_AREA, {
+    sink: SINK[window.pet._settings.outfit] || 0, petW: winW, petH: winH,
+    padX: padXFor(window.pet._settings.outfit)
+  }),
+  setBlock: () => {},
+  // #demo 只是给"没有真实记录"时的兜底示例数据，stats.js 里判断
+  showStats: () => window.open('stats.html#demo', '_blank'),
+  showMenu: () => {},
+  heartbeat: async () => true,
+
+  // 注册式回调：存起来，等 _fire 时调用
+  onOutfit: (cb) => { callbacks.outfit.push(cb); },
+  onScale: (cb) => { callbacks.scale.push(cb); },
+  onAction: (cb) => { callbacks.action.push(cb); },
+  _fireOutfit: (k) => callbacks.outfit.forEach((cb) => cb(k)),
+  _fireScale: (k) => callbacks.scale.forEach((cb) => cb(k)),
+  _fireAction: (a) => callbacks.action.forEach((cb) => cb(a))
+};
+
+// 真机里是主进程改窗口尺寸后回广播 'scale'。替身照抄这个顺序：
+// 先改"窗口"（舞台尺寸 + 位置重排），再通知渲染层。
+function applyVirtualScale(k) {
+  if (!SIZES[k]) k = 'medium';
+  const oldW = winW, oldH = winH;
+  winW = Math.round(BASE_W * SIZES[k]);
+  winH = Math.round(BASE_H * SIZES[k]);
+  if (winH !== oldH || winW !== oldW) {
+    // 与 main.js 的 applyScale 同样是"底边 + 水平中心"为锚
+    virtualPos.x = Math.round(virtualPos.x + oldW / 2 - winW / 2);
+    virtualPos.y = Math.round(virtualPos.y + oldH - winH);
+  }
+  virtualPos = clampVirtual(virtualPos.x, virtualPos.y);
+  syncStage();
+  window.pet._fireScale(k);
+}
+
+// 视口就是工作区，所以窗口尺寸一变就得重新夹一次 —— 和真机上
+// "分辨率变了，enforceSize 会把桌宠拉回合法位置"是同一个道理。
+window.addEventListener('resize', () => {
+  WORK_AREA.width = window.innerWidth;
+  WORK_AREA.height = window.innerHeight;
+  virtualPos = clampVirtual(virtualPos.x, virtualPos.y);
+  syncStage();
+});
+
+virtualPos = clampVirtual(ORIGIN.x, ORIGIN.y);
+syncStage();
+</script>
+<script src="dialogue.js"></script>
+<script src="pet.js"></script>
+<script>
+// ---- 演示按钮：全部走 pet.js 的真实入口，不自己造 class ----
+function dispatchDemo(k) {
+  const demo = window.__petDemo;
+  const wrap = document.querySelector('#petWrap');
+  if (!demo) return;
+
+  if (k === 'blush') demo.blush();
+  if (k === 'click') wrap.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+  if (k === 'double') {
+    // 间隔必须小于 pet.js 的 250ms 判定窗口
+    wrap.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+    wrap.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+  }
+  if (k === 'pat') {
+    // 头部判定：clientY - top < height * 0.32，且要停留 1100ms 才触发
+    const r = wrap.getBoundingClientRect();
+    wrap.dispatchEvent(new MouseEvent('mousemove', {
+      bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + 18
+    }));
+  }
+  if (k === 'sleep') demo.sleep();
+  if (k === 'walk') demo.walk();
+  if (k === 'look') {
+    // 目光跟随：把鼠标"放"到舞台斜下方，看整层有没有偏移
+    const r = wrap.getBoundingClientRect();
+    demo.lookAt({ clientX: r.left + r.width * 0.22, clientY: r.top + r.height * 0.82 });
+  }
+  if (k === 'scale') {
+    const order = ['small', 'medium', 'large'];
+    const cur = order.indexOf(window.pet._settings.scale);
+    demo.setScale(order[(cur + 1) % order.length]);
+  }
+  if (k === 'dropL') {
+    // 横向吸附：从"角色外轮廓已经压到屏幕左边缘外"的位置松手。
+    // 顺序：scrub -> snapX -> settle，和真机松手走的是同一段代码。
+    demo.dropAt(-400).then((r) => {
+      if (r) demo.quote(['……靠得太近了。']);
+    });
+  }
+  if (k === 'pomodoro') demo.openPomodoro();
+  if (k === 'outfit') {
+    // 等价于真机右键"服装 -> ..."：轮流切过四套
+    const order = ['maid', 'sailor', 'coat', 'winter'];
+    const cur = order.indexOf(window.pet._settings.outfit);
+    demo.pet(order[(cur + 1) % order.length]);
+  }
+  if (k === 'seed') seedDemoRecords();
+  if (k === 'stats') window.pet.showStats();
+  if (k === 'offscreen') {
+    // 模拟"被拖到屏幕外"：直接把窗口往左下角外面推。
+    // 约束生效 -> 她停在屏幕边上；不生效 -> 整个人凭空消失。
+    // 这段走的是 main.js require 的同一份 clamp.js，所以这个演示不是"等效"，
+    // 就是那条逻辑本身。
+    window.pet.moveTo(-99999, 99999);
+    demo.quote(['……你打算把我扔到什么地方去？']);
+  }
+}
+
+function seedDemoRecords() {
+  const now = Date.now(), day = 86400000;
+  const rows = [
+    ['高数', 30, true, 0], ['高数', 25, true, 0.4], ['英语阅读', 25, true, 0.2],
+    ['有机化学', 45, true, 1], ['有机化学', 20, false, 1.2], ['写代码', 60, true, 2],
+    ['写代码', 30, true, 2.3], ['高数', 15, true, 3], ['英语阅读', 45, true, 3.5],
+    ['写代码', 90, true, 4]
+  ];
+  const list = rows.map(([name, minutes, completed, daysAgo], i) => ({
+    name, minutes, completed, planned: minutes,
+    startedAt: now - daysAgo * day - i * 60000,
+    endedAt: now - daysAgo * day - i * 60000 + minutes * 60000
+  }));
+  localStorage.setItem('pom_demo', JSON.stringify(list));
+  const d = window.__petDemo;
+  if (d) { d.quote(['示例数据已写入。……别拿去当成绩单。']); d.emote('✅'); }
+}
+
+document.querySelectorAll('.demo-bar button').forEach((b) => {
+  b.addEventListener('click', () => dispatchDemo(b.dataset.demo));
+});
+
+// 支持用 hash 直接触发某个演示，例如
+//   preview.html#demo=outfit
+//   preview.html#o=sailor&quiet=1     <- 定格某套装扮，供截图逐张验收
+//     demo=xxx               要触发的演示
+//     o=<outfit>             直接换上这套装扮（走真机的换装入口）
+//     sc=<scale>             直接切到某档大小（small / medium / large）
+//     hold=blush             把腮红定格在动画中段的浓度（见下）
+//     quiet=1                一直藏住气泡，免得挡住脸
+//     delay=600              触发时刻（毫秒，虚拟时间）
+(function autoFromHash() {
+  const p = new URLSearchParams(decodeURIComponent(location.hash.replace(/^#/, '')));
+  const k = p.get('demo'), o = p.get('o'), sc = p.get('sc'), hold = p.get('hold');
+  if (!k && !o && !sc && !hold) return;
+
+  // hold=blush —— 把腮红**定格**在动画中段的浓度，供截图验收。
+  // 为什么需要定格：截图走 --virtual-time-budget，虚拟时间轴和 CSS 动画的时间轴
+  // 对不齐。实测同一组参数跑两次，一次抓到动画中段、一次抓到已经收尾的那一帧
+  // （右上角 readout 的 blush 值会是 0），而腮红全长只有 1.7s，靠运气验收不可靠。
+  // 定格之后人眼要判断的是"画在哪、浓淡如何"，动画流畅度在真机点按钮看。
+  if (hold === 'blush') {
+    const bl = document.getElementById('blush');
+    bl.style.animation = 'none';          // inline 优先于 pet.css 的 #blush.on
+    bl.style.opacity = '0.92';            // 取动画 16%~70% 之间的平台值
+  }
+
+  setTimeout(() => {
+    if (p.get('seed')) seedDemoRecords();
+    if (sc && window.__petDemo) window.__petDemo.setScale(sc);
+    if (o) window.__petDemo && window.__petDemo.pet(o);
+    else if (k) dispatchDemo(k);
+  }, parseInt(p.get('delay') || '600', 10));
+  // 注意必须判 === '1'：query 值都是字符串，"0" 也是真值
+  if (p.get('quiet') === '1') {
+    setInterval(() => document.getElementById('bubble').classList.add('hidden'), 60);
+  }
+})();
+
+// 状态读数，方便确认状态机真的在动
+const readout = document.getElementById('state-readout');
+setInterval(() => {
+  if (!window.__petDemo) return;
+  const s = window.__petDemo.getState();
+  readout.textContent =
+    'viewport: ' + window.innerWidth + 'x' + window.innerHeight + '\n' +
+    'outfit : ' + s.outfit + '\n' +
+    'mode   : ' + s.mode + '\n' +
+    'sleep  : ' + s.sleeping + '\n' +
+    'scale  : ' + s.scale + ' (' + winW + 'x' + winH + ')\n' +
+    'pom    : ' + s.hasPom + '\n' +
+    'pos    : ' + Math.round(virtualPos.x) + ',' + Math.round(virtualPos.y) + '\n' +
+    'padX   : ' + padXFor(s.outfit) + '\n' +
+    // 腮红是只有 1.7s 的短动画，无头截图很容易拍到它已经收尾的那一帧。
+    // 把实时 opacity 摆出来，才能区分"没触发"和"拍晚了"。
+    'blush  : ' + getComputedStyle(document.getElementById('blush')).opacity;
+}, 250);
+</script>
+</body>
+</html>
