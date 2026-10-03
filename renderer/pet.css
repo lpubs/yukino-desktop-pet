@@ -22,6 +22,13 @@ html, body {
   display: flex;
   align-items: flex-end;      /* 角色站在窗口底部 */
   justify-content: center;
+  /* 气泡的尺寸全部用 cqw（容器查询单位）表达 —— "窗口宽度的 1%"，
+     所以 #stage 必须声明成容器。它恰好就是"窗口"本身：
+     真机里 inset:0 铺满窗口，预览页里是那个 404x400 的框。
+     这样三种缩放下气泡都会跟着窗口一起缩放，不需要 JS 参与。
+     用 inline-size 而非 size：只需要横向参照，不必让内容脱离尺寸计算。
+     注意这里没有 paint 包含 —— 跳跃之类的动画不会被裁掉。 */
+  container-type: inline-size;
 }
 
 #petWrap {
@@ -174,48 +181,72 @@ html, body {
 }
 #petWrap.walk { animation: walkb .42s ease-in-out infinite; }
 
-/* ---------- 气泡 ---------- */
-#bubble {
+/* ---------- 顶部信息条：倒计时徽章 + 对话气泡 ---------- */
+/* 这两个原本各自 `position:absolute; top:6~8px; left:50%` ——
+   后果是**番茄钟跑着的时候她一说台词，徽章和气泡就叠在一起**
+   （两个都锚在窗口正中的同一条线上）。
+   收进一个纵向 flex 容器里让它们自然堆叠：徽章在上、气泡在下，
+   谁出现谁占位，永远不重叠。
+   pointer-events:none —— 它们只是显示，不该抢走"按住拖她"的拖拽。 */
+#topBar {
   position: absolute;
-  top: 6px; left: 50%;
-  transform: translateX(-50%);
-  max-width: calc(100% - 16px);
-  padding: 9px 13px;
-  background: rgba(255, 255, 255, .97);
-  color: #23222a;
-  font-size: 12.5px;
-  line-height: 1.55;
-  border-radius: 12px;
-  border: 1px solid rgba(120, 130, 160, .28);
-  box-shadow: 0 4px 14px rgba(40, 50, 80, .16);
+  top: 3px; left: 0; right: 0;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 1.0cqw;
   z-index: 30;
+  pointer-events: none;
+}
+
+/* ---------- 对话气泡 ---------- */
+/* 材质：半透明白 + 背景模糊（磨砂玻璃）。
+   为什么不继续用不透明的白盒子：窗口只有 404x400，而角色是**按高度撑满**的
+   （见 .frame 的说明），头顶上方根本没有空地 —— 气泡必然压在她的头发上。
+   实心白盒看起来就是"贴了张纸在她头上"；磨砂玻璃则让她的头发在字底下
+   化成一团柔和的灰雾，字照样读得清，但不再像贴纸。
+   这条是拿放大 3 倍的对照图挑出来的：不模糊的版本能看见一根根发丝和白蕾丝
+   **横穿文字**，字的对比度忽高忽低，明显更差。
+   万一 backdrop-filter 哪天失效，下面的 @supports 兜底会自动把白底提到 .88。 */
+#bubble {
+  position: relative;            /* ::after 的定位锚点 */
+  max-width: 68%;
+  padding: 1.7cqw 3.0cqw 1.9cqw;
+  font-size: 3.1cqw;             /* 404 宽时 ≈ 12.5px */
+  line-height: 1.5;
+  border-radius: 3.4cqw;         /* ≈ 14px */
+  background: rgba(255, 255, 255, .72);
+  -webkit-backdrop-filter: blur(2cqw) saturate(1.3);
+  backdrop-filter: blur(2cqw) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, .72);
+  color: #23222a;
+  box-shadow: 0 1cqw 2.6cqw rgba(30, 40, 70, .14);
   word-break: break-word;
 }
+/* 小尾巴，指向她 */
 #bubble::after {
   content: "";
   position: absolute;
-  left: 50%; bottom: -7px;
-  margin-left: -6px;
-  border: 6px solid transparent;
-  border-top-color: rgba(255, 255, 255, .97);
+  left: 50%; bottom: -1.15cqw;
+  margin-left: -1.15cqw;
+  border: 1.15cqw solid transparent;
+  border-top-color: rgba(255, 255, 255, .72);
   border-bottom: 0;
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  #bubble { background: rgba(255, 255, 255, .88); border-color: rgba(255, 255, 255, .9); }
+  #bubble::after { border-top-color: rgba(255, 255, 255, .88); }
 }
 
 /* ---------- 倒计时徽章 ---------- */
 #badge {
-  position: absolute;
-  top: 8px; left: 50%;
-  transform: translateX(-50%);
-  display: flex; gap: 8px; align-items: baseline;
-  padding: 5px 12px;
+  display: flex; gap: 1.9cqw; align-items: baseline;
+  padding: 1.2cqw 3cqw;
   background: rgba(30, 36, 52, .9);
   color: #eef2ff;
   border-radius: 999px;
-  font-size: 12px;
-  z-index: 31;
+  font-size: 2.95cqw;            /* 404 宽时 ≈ 12px */
   white-space: nowrap;
 }
-#badgeName { opacity: .78; max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
+#badgeName { opacity: .78; max-width: 24cqw; overflow: hidden; text-overflow: ellipsis; }
 #badgeTime { font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: .4px; }
 #badge.break { background: rgba(15, 110, 86, .92); }
 

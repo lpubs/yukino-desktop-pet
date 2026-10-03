@@ -75,11 +75,14 @@
 </div>
 
 <div id="stage">
-  <!-- 与 index.html 的 DOM 层级保持一致：气泡/徽章/面板/粒子都在"窗口"内 -->
-  <div id="badge" class="hidden">
-    <span id="badgeName">专注</span><span id="badgeTime">25:00</span>
+  <!-- 与 index.html 的 DOM 层级保持一致：徽章+气泡在 #topBar 里纵向堆叠，
+       面板/粒子仍在"窗口"内 -->
+  <div id="topBar">
+    <div id="badge" class="hidden">
+      <span id="badgeName">专注</span><span id="badgeTime">25:00</span>
+    </div>
+    <div id="bubble" class="hidden"><span id="bubbleText"></span></div>
   </div>
-  <div id="bubble" class="hidden"><span id="bubbleText"></span></div>
 
   <div id="petWrap">
     <div id="lookWrap">
@@ -335,12 +338,14 @@ document.querySelectorAll('.demo-bar button').forEach((b) => {
 //     o=<outfit>             直接换上这套装扮（走真机的换装入口）
 //     sc=<scale>             直接切到某档大小（small / medium / large）
 //     hold=blush             把腮红定格在动画中段的浓度（见下）
+//     say=<文字>             让她说这句台词，并**定格**住不自动消失（见下）
 //     quiet=1                一直藏住气泡，免得挡住脸
 //     delay=600              触发时刻（毫秒，虚拟时间）
 (function autoFromHash() {
   const p = new URLSearchParams(decodeURIComponent(location.hash.replace(/^#/, '')));
   const k = p.get('demo'), o = p.get('o'), sc = p.get('sc'), hold = p.get('hold');
-  if (!k && !o && !sc && !hold) return;
+  const say = p.get('say');
+  if (!k && !o && !sc && !hold && !say && !p.get('seed')) return;
 
   // hold=blush —— 把腮红**定格**在动画中段的浓度，供截图验收。
   // 为什么需要定格：截图走 --virtual-time-budget，虚拟时间轴和 CSS 动画的时间轴
@@ -356,12 +361,31 @@ document.querySelectorAll('.demo-bar button').forEach((b) => {
   setTimeout(() => {
     if (p.get('seed')) seedDemoRecords();
     if (sc && window.__petDemo) window.__petDemo.setScale(sc);
-    if (o) window.__petDemo && window.__petDemo.pet(o);
-    else if (k) dispatchDemo(k);
+    if (o && window.__petDemo) window.__petDemo.pet(o);
+    if (k) dispatchDemo(k);
+    // say= 与 demo= 可以同时给（例如「番茄钟跑着时她说话」—— 徽章和气泡同时在），
+    // 所以这里**不是** else if。
+    if (say && window.__petDemo) {
+      window.__petDemo.quote([say]);
+      // 气泡同样要定格：quit/dur 到期就把气泡藏了，而虚拟时间跑得比真实定时器快，
+      // 截图抓到的经常是"已经收尾"的那一帧 —— 和 hold=blush 是同一个坑。
+      const b = document.getElementById('bubble');
+      const pin = () => { b.classList.remove('hidden'); b.style.opacity = '1'; };
+      pin();
+      setInterval(pin, 60);
+    }
   }, parseInt(p.get('delay') || '600', 10));
   // 注意必须判 === '1'：query 值都是字符串，"0" 也是真值
   if (p.get('quiet') === '1') {
     setInterval(() => document.getElementById('bubble').classList.add('hidden'), 60);
+  }
+  // badge=1 —— 强制显示倒计时徽章。只为验收"徽章和气泡同时在场时排得对不对"
+  // （真机里徽章要等番茄钟跑起来才出现，无头截图里没法先点一遍"开始"）。
+  if (p.get('badge') === '1') {
+    const bd = document.getElementById('badge');
+    const pinB = () => bd.classList.remove('hidden');
+    pinB();
+    setInterval(pinB, 60);
   }
 })();
 
@@ -381,7 +405,19 @@ setInterval(() => {
     'padX   : ' + padXFor(s.outfit) + '\n' +
     // 腮红是只有 1.7s 的短动画，无头截图很容易拍到它已经收尾的那一帧。
     // 把实时 opacity 摆出来，才能区分"没触发"和"拍晚了"。
-    'blush  : ' + getComputedStyle(document.getElementById('blush')).opacity;
+    'blush  : ' + getComputedStyle(document.getElementById('blush')).opacity + '\n' +
+    // 气泡：摆出**排版后的实际尺寸**和字号。气泡尺寸走的是 cqw（跟着窗口等比），
+    // 而"到底有没有跟着窗口走"从截图上是量不准的 —— 试过按亮度找气泡，
+    // 结果被浅色假桌面骗了。直接读浏览器的排版结果才是确定的。
+    // 判据：bubble 宽 / 窗口宽 在 small / medium / large 三档之间应当基本一致。
+    (function () {
+      const b = document.getElementById('bubble');
+      const r = b.getBoundingClientRect();
+      const fs = parseFloat(getComputedStyle(b).fontSize);
+      return 'bubble : ' + Math.round(r.width) + 'x' + Math.round(r.height) +
+             '  font ' + fs.toFixed(2) + 'px  ' +
+             (Math.round(1000 * r.width / winW) / 10) + '% of win';
+    })();
 }, 250);
 </script>
 </body>

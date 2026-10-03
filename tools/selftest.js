@@ -190,6 +190,54 @@ for (const id of [...idsUsed].sort()) {
   else bad('pet.js 要用的 #' + id + ' 不在 renderer/index.html 里', '会在启动时抛 TypeError，桌宠直接不出现');
 }
 
+// ---------- 4b. 顶部信息条：徽章与气泡必须堆叠 ----------
+// 曾经的 bug：两者都锚在窗口正中的同一条线上（各自 position:absolute + top:6~8px），
+// 于是番茄钟跑着的时候她一说台词，徽章和气泡就叠成一团。
+// 现在它们摞在 #topBar 这个纵向 flex 里，谁出现谁占位。
+section('[4b] 顶部信息条（徽章 + 气泡）');
+const petCss = read('renderer/pet.css') || '';
+
+for (const [label, html] of [['renderer/index.html', indexHtml],
+                             ['renderer/preview.html', prevHtml]]) {
+  const i = html.indexOf('id="topBar"');
+  if (i < 0) {
+    bad(`${label} 里没有 #topBar`, '徽章与气泡会各自绝对定位、互相压住');
+    continue;
+  }
+  const j = html.indexOf('id="panel"', i);
+  const seg = html.slice(i, j > 0 ? j : undefined);
+  const miss = ['badge', 'bubble'].filter((k) => !seg.includes(`id="${k}"`));
+  if (miss.length) bad(`${label} 的 #topBar 里缺 #${miss.join(' / #')}`, '气泡和徽章会再度叠在同一条线上');
+  else ok(`${label} 的 #topBar 装着 #badge 与 #bubble`);
+}
+
+const bubbleRule = (petCss.match(/#bubble\s*\{([^}]*)\}/) || [, ''])[1];
+if (/position\s*:\s*absolute/.test(bubbleRule)) {
+  bad('pet.css 的 #bubble 又变成 position:absolute 了',
+    '这正是"徽章压气泡"的成因，应该交给 #topBar 堆叠');
+} else ok('#bubble 不再绝对定位（由 #topBar 堆叠）');
+
+const stageRule = (petCss.match(/#stage\s*\{([^}]*)\}/) || [, ''])[1];
+if (/container-type\s*:\s*inline-size/.test(stageRule)) {
+  ok('#stage 声明了 container-type: inline-size');
+} else {
+  bad('#stage 缺 container-type: inline-size',
+    '气泡的 cqw 尺寸会失去参照物，三种缩放下会失配');
+}
+
+if (/font-size\s*:\s*[\d.]+cqw/.test(bubbleRule)) {
+  ok('#bubble 字号用 cqw（随窗口等比缩放）');
+} else {
+  bad('#bubble 的字号不是 cqw', '写死 px 的话，小档（291 宽）气泡会占掉窗口约四分之一的高度');
+}
+
+if (/backdrop-filter/.test(bubbleRule) && /@supports not\s*\(/.test(petCss)) {
+  ok('#bubble 磨砂玻璃 + 无模糊时的兜底都在');
+} else {
+  bad('#bubble 缺磨砂玻璃或它的 @supports 兜底',
+    '兜底是"backdrop-filter 失效时自动加实白底"，少了它气泡会在部分环境里看不清字');
+}
+
 // ---------- 5. 台词键 ----------
 section('[5] 台词键');
 const dialogueJs = read('renderer/dialogue.js') || '';
@@ -320,6 +368,188 @@ for (const need of ['renderer/**/*', 'assets/**/*', 'preload.js', 'main.js', 'cl
 const icon = pkg.build && pkg.build.win && pkg.build.win.icon;
 if (icon && exists(icon)) ok('win.icon = ' + icon);
 else bad('package.json 的 win.icon 指向不存在的文件: ' + icon, 'electron-builder 会直接打包失败');
+
+// ---------- 10. 隐私：本机路径 / 令牌 / 用户名不许进仓库 ----------
+// 与 tools/scan_secrets.py 同一套判定思路，但零依赖、纯 node 实现，
+// 这样 `npm run selftest` 单独也能拦住；Python 版是发布流水线里的那道闸门。
+// 私密词同样在运行时推导，不写死在源码里 —— 否则这份自检本身就成了泄露源。
+section('[10] 隐私：本机路径 / 令牌 / 用户名不许进仓库');
+
+const os = require('os');
+const SCAN_SKIP = new Set(['node_modules', 'dist', 'models', '_work', '_review',
+  '.git', '__pycache__', '.vscode', '.idea', '.mypy_cache']);
+const SCAN_SKIP_EXT = new Set(['.png', '.ico', '.jpg', '.jpeg', '.webp', '.gif',
+  '.bmp', '.onnx', '.exe', '.dll', '.zip', '.7z', '.ttf', '.ttc', '.woff',
+  '.woff2', '.mp4', '.pdf', '.xlsx', '.sqlite', '.bin', '.node']);
+
+// 允许公开的通用系统路径：标准安装位置，不含任何使用者标识。
+// ★ 这份列表必须与 tools/scan_secrets.py 的 SAFE_PATH_PREFIXES 完全一致 ★
+// 两处规则一旦漂移，「一边拦一边放」就会静默出现 —— 下面有断言强制比对。
+const SAFE_PATHS = ['c:\\windows', 'c:\\program files',
+  'c:\\program files (x86)', 'c:\\programdata', 'c:\\$recycle.bin'];
+const normPath = (s) => s.replace(/\\\\/g, '\\').replace(/\\/g, '/').toLowerCase();
+const SAFE_NORM = SAFE_PATHS.map(normPath);
+function isSafePath(seg) {
+  const s = normPath(seg);
+  return SAFE_NORM.some((p) => {
+    if (s === p) return true;
+    if (!s.startsWith(p)) return false;
+    // 前缀必须落在完整目录段边界上，否则把白名单目录名延长几个字母也算通过
+    return !/[A-Za-z0-9._-]/.test(s.charAt(p.length));
+  });
+}
+
+const GENERIC_RULES = [
+  ['GitHub classic PAT', /ghp_[A-Za-z0-9]{16,}/],
+  ['GitHub 细粒度 PAT', /github_pat_[A-Za-z0-9_]{20,}/],
+  ['GitHub OAuth/App 令牌', /gh[ousr]_[A-Za-z0-9]{20,}/],
+  ['OpenAI 风格密钥', /sk-[A-Za-z0-9][A-Za-z0-9\-_]{19,}/],
+  ['AWS Access Key ID', /AKIA[0-9A-Z]{16}/],
+  ['Google API Key', /AIza[0-9A-Za-z\-_]{35}/],
+  ['Slack 令牌', /xox[baprs]-[0-9A-Za-z\-]{10,}/],
+  ['npm 令牌', /npm_[A-Za-z0-9]{36}/],
+  ['私钥文件头', /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
+  ['赋值式密钥字面量',
+    /(?:api[_-]?key|secret|passwd|password|access[_-]?token|auth[_-]?token)\s*[:=]\s*["'][A-Za-z0-9._\-]{16,}["']/i],
+];
+const DRIVE_PATH = /(?<![A-Za-z0-9_])([A-Za-z]):([\\/])([^\s"'`)\]}>,;|]*)/g;
+const USERS_PATH = /[\\/]Users[\\/][^\s"'`)\]}>,;|]+/g;
+
+const privateTerms = new Map();
+function addTerm(t, why) {
+  t = (t || '').trim();
+  if (t.length < 3) return;
+  if (/^[\d._+-]+$/.test(t) && t.length < 4) return;
+  if (!privateTerms.has(t)) privateTerms.set(t, why);
+}
+// 纯字母数字的词（典型是全数字的用户名）必须落在词边界上才算命中：
+// 否则 package-lock.json 里几百 KB 的 base64 完整性哈希会疯狂误报。
+function termHit(low, term) {
+  const lt = term.toLowerCase();
+  if (!/^[a-z0-9]+$/.test(lt)) return low.includes(lt);
+  let i = low.indexOf(lt);
+  while (i !== -1) {
+    const before = low.charAt(i - 1), after = low.charAt(i + lt.length);
+    if (!/[a-z0-9]/.test(before) && !/[a-z0-9]/.test(after)) return true;
+    i = low.indexOf(lt, i + 1);
+  }
+  return false;
+}
+addTerm(process.env.USERNAME, 'env USERNAME');
+addTerm(process.env.USER, 'env USER');
+let homeDir = '';
+try { homeDir = os.homedir(); } catch (e) { /* 忽略 */ }
+if (homeDir) {
+  addTerm(path.basename(homeDir), '家目录末段');
+  if (homeDir.length >= 6) {
+    addTerm(homeDir, '家目录路径');
+    addTerm(homeDir.replace(/\\/g, '/'), '家目录路径(/)');
+  }
+}
+// 推导不出来的个人词（本机目录名等）放在 _work/ 下，该目录不入库
+const denyPath = path.join(ROOT, '_work', 'privacy-denylist.txt');
+if (fs.existsSync(denyPath)) {
+  let denyText = '';
+  try { denyText = fs.readFileSync(denyPath, 'utf8'); } catch (e) { /* 忽略 */ }
+  for (const raw of denyText.split(/\r?\n/)) {
+    const w = raw.split('#')[0].trim();
+    if (w) addTerm(w, '黑名单');
+  }
+}
+
+function walkForScan(dir, out) {
+  let entries = [];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return out; }
+  for (const e of entries) {
+    if (e.isDirectory()) {
+      if (!SCAN_SKIP.has(e.name)) walkForScan(path.join(dir, e.name), out);
+    } else if (!SCAN_SKIP_EXT.has(path.extname(e.name).toLowerCase())) {
+      out.push(path.join(dir, e.name));
+    }
+  }
+  return out;
+}
+
+const scannedFiles = walkForScan(ROOT, []);
+const privacyHits = [];
+for (const abs of scannedFiles) {
+  let text = '';
+  try { text = fs.readFileSync(abs, 'utf8'); } catch (e) { continue; }
+  if (text.includes('\u0000')) continue;
+  const rel = path.relative(ROOT, abs);
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.includes('scan:ignore')) continue;
+    for (const [name, rx] of GENERIC_RULES) {
+      // 这些正则是非全局的，test() 不会有 lastIndex 残留问题
+      if (rx.test(line)) privacyHits.push(`${rel}:${i + 1}  ${name}`);
+    }
+    for (const m of line.matchAll(DRIVE_PATH)) {
+      if (isSafePath(line.slice(m.index))) continue;
+      privacyHits.push(`${rel}:${i + 1}  本机绝对路径  ${m[0].slice(0, 48)}`);
+    }
+    for (const m of line.matchAll(USERS_PATH)) {
+      // 家目录盘符路径已由 DRIVE_PATH 处理；这里只认盘符之外的写法
+      if (m[0].toLowerCase().startsWith('\\users') && line.toUpperCase().includes('C:')) continue;
+      privacyHits.push(`${rel}:${i + 1}  用户目录路径  ${m[0].slice(0, 48)}`);
+    }
+    const low = line.toLowerCase();
+    for (const [t, why] of privateTerms) {
+      if (termHit(low, t)) privacyHits.push(`${rel}:${i + 1}  私密词(${why})`);
+    }
+  }
+}
+
+if (exists('tools/scan_secrets.py')) ok('tools/scan_secrets.py 存在（发布闸门）');
+else bad('缺少 tools/scan_secrets.py', '发布流水线靠它拦本机路径与令牌，不能丢');
+
+const gi = read('.gitignore') || '';
+for (const need of ['_work/', '.env', 'node_modules/']) {
+  if (gi.includes(need)) ok('.gitignore 排除 ' + need);
+  else bad('.gitignore 缺少 ' + need, '本机黑名单/凭证文件可能被误提交');
+}
+
+// 两份实现的白名单必须一致：从 Python 版源码里把 SAFE_PATH_PREFIXES 抠出来比对。
+// 规则漂移的后果是「一边拦、一边放」，而且完全静默 —— 所以必须断言。
+const pySrc = read('tools/scan_secrets.py') || '';
+const pyBlock = (pySrc.match(/SAFE_PATH_PREFIXES\s*=\s*\(([\s\S]*?)\n\)/) || [, ''])[1];
+const pySafe = [...pyBlock.matchAll(/r"([^"]*)"/g)].map((m) => normPath(m[1]));
+const jsSafe = SAFE_PATHS.map(normPath);
+if (pySafe.length === 0) {
+  bad('没能从 tools/scan_secrets.py 解析出白名单',
+    '两份规则的一致性检查已失效，改扫描器时请同步这里');
+} else {
+  const onlyPy = pySafe.filter((p) => !jsSafe.includes(p));
+  const onlyJs = jsSafe.filter((p) => !pySafe.includes(p));
+  if (onlyPy.length || onlyJs.length) {
+    bad('隐私白名单两份实现不一致',
+      `仅 Python 有: ${onlyPy.join(', ') || '无'}\n` +
+      `      仅 JS 有: ${onlyJs.join(', ') || '无'}`);
+  } else {
+    ok(`隐私白名单两份一致（${pySafe.length} 条）`);
+  }
+}
+
+// 推送闸门的两条「静默失效」防线 —— 失效时都不会有任何报错，只会悄悄放行。
+//   * 只扫工作区：索引里有、工作区已删的文件会被推上去却没人看过（已实测复现过）。
+//   * 黑名单文件路径写错：以前是静默跳过，整套个人词规则直接归零。
+for (const [needle, why] of [
+  ['--from-index', '推送闸门必须按 git 索引扫，否则「索引有 / 工作区已删」可绕过'],
+  ['"cat-file"', '从索引取 blob 内容（推送用的就是这份）'],
+  ['missing_words', '--words-file 指向不存在的文件必须报错退出，不许静默跳过'],
+]) {
+  if (pySrc.includes(needle)) ok(`scan_secrets.py 含 ${needle}`);
+  else bad(`scan_secrets.py 缺少 ${needle}`, why);
+}
+
+if (privacyHits.length === 0) {
+  ok(`已扫 ${scannedFiles.length} 个文本文件：无本机路径 / 令牌 / 用户名 / 私密词`);
+} else {
+  const uniq = [...new Set(privacyHits)].slice(0, 12);
+  bad(`发现 ${privacyHits.length} 处不该公开的内容`, uniq.join('\n      ') +
+    (privacyHits.length > uniq.length ? `\n      …还有 ${privacyHits.length - uniq.length} 处` : ''));
+}
 
 // ---------- 汇总 ----------
 console.log('\n' + '-'.repeat(52));

@@ -256,6 +256,46 @@ def run_stats(browser):
     return make_sheet(cells, 1, 680, 780, OUT / "sheet_stats.png")
 
 
+# 用库里最长的一档台词（24 字，会折两行）—— 气泡最容易露怯的情况。
+# 必须 percent-encode：preview.html 的 hash 解析是 decodeURIComponent 之后再交给
+# URLSearchParams 的，中文直接塞进去会被当成 URL 里的非法字符。
+BUBBLE_LINE = "跳一下怎么了。人类偶尔需要应激反应——这是科学。"
+SAY = urllib.parse.quote(BUBBLE_LINE, safe="")
+
+
+def run_bubbles(browser):
+    """对话气泡的专门验收。
+
+    气泡是"必然压住角色"的：窗口只有 404x400 而角色按高度撑满，头顶上方没有空地。
+    所以这里要看的不是"有没有压住"，而是四种压法里哪种最融洽 ——
+    逐张看图，不要只看"渲染成功了"。
+    要盯的三件事：
+      ① 四套装扮下都会不会被压得难看（素材宽窄差 2 倍）；
+      ② 小档 / 大档的尺寸是否跟着窗口等比走（cqw 有没有生效）；
+      ③ 徽章和气泡同时在场时会不会叠在一起（曾经的真 bug）。
+    """
+    scenes = [
+        ("maid",   f"o=maid&say={SAY}&delay=900",     "女仆装"),
+        ("sailor", f"o=sailor&say={SAY}&delay=900",   "水手服（窄）"),
+        ("coat",   f"o=coat&say={SAY}&delay=900",     "冬大衣"),
+        ("winter", f"o=winter&say={SAY}&delay=900",   "冬装（窄）"),
+        ("small",  f"o=maid&sc=small&say={SAY}&delay=900",
+         "小档（0.72）—— 尺寸该跟着窗口缩小"),
+        ("large",  f"o=maid&sc=large&say={SAY}&delay=900",
+         "大档（1.28）—— 尺寸该跟着窗口放大"),
+        ("badge",  f"o=maid&badge=1&say={SAY}&delay=900",
+         "徽章 + 气泡同时在（必须上下堆叠，不能重叠）"),
+    ]
+    cells = []
+    for k, h, label in scenes:
+        png = shot(browser, "preview.html", h, f"app_bubble_{k}.png", budget=4200)
+        box = stage_box_for("small" if k == "small" else
+                            "large" if k == "large" else "medium")
+        cells.append((label, crop(png, box) if png else None))
+    return make_sheet(cells, 4, STAGE_W, STAGE_H, OUT / "sheet_bubbles.png",
+                      title="对话气泡：磨砂玻璃材质 + 随窗口等比缩放 + 与徽章堆叠")
+
+
 def main():
     browser = find_browser()
     print("browser:", browser)
@@ -267,6 +307,9 @@ def main():
     if which in ("all", "states"):
         print("[states] ...")
         made.append(run_states(browser))
+    if which in ("all", "bubbles"):
+        print("[bubbles] ...")
+        made.append(run_bubbles(browser))
     if which in ("all", "stats"):
         print("[stats] ...")
         made.append(run_stats(browser))

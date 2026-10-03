@@ -9,14 +9,18 @@
 </head>
 <body>
 
-<!-- 倒计时徽章 -->
-<div id="badge" class="hidden">
-  <span id="badgeName">专注</span>
-  <span id="badgeTime">25:00</span>
-</div>
+<!-- 窗口顶部：徽章 + 气泡摞在一个纵向 flex 里。
+     分开绝对定位的话，番茄钟跑着的时候她一说台词，两个会叠在同一条线上。 -->
+<div id="topBar">
+  <!-- 倒计时徽章 -->
+  <div id="badge" class="hidden">
+    <span id="badgeName">专注</span>
+    <span id="badgeTime">25:00</span>
+  </div>
 
-<!-- 对话气泡 -->
-<div id="bubble" class="hidden"><span id="bubbleText"></span></div>
+  <!-- 对话气泡（磨砂玻璃，材质与尺寸的说明见 pet.css） -->
+  <div id="bubble" class="hidden"><span id="bubbleText"></span></div>
+</div>
 
 <!-- 角色舞台 -->
 <div id="stage">
