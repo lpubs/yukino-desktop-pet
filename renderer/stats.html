@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>番茄统计 · 雪乃</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  /* 这条不能少：下面的空状态提示、图表、明细都靠 classList.toggle('hidden') 控制，
+     少了它，加了类也没有任何样式生效 —— 表现为"有数据时空状态提示还挂在页面上"。 */
+  .hidden { display: none !important; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    background: #f7f8fa; color: #23222a; padding: 24px 26px 34px; font-size: 13.5px;
+  }
+  h1 { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+  .sub { color: #7b8092; font-size: 12.5px; margin-bottom: 20px; }
+
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 22px; }
+  .card { background: #fff; border: 1px solid #e6e8ee; border-radius: 10px; padding: 13px 15px; }
+  .card .lb { font-size: 12px; color: #7b8092; margin-bottom: 5px; }
+  .card .vl { font-size: 23px; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .card .vl small { font-size: 12px; font-weight: 400; color: #8b90a0; margin-left: 2px; }
+
+  .panel { background: #fff; border: 1px solid #e6e8ee; border-radius: 12px; padding: 18px 20px; margin-bottom: 18px; }
+  .panel h2 { font-size: 13.5px; font-weight: 600; margin-bottom: 14px; color: #3a3f52; }
+
+  .chartrow { display: flex; gap: 26px; align-items: center; }
+  .donut { flex: 0 0 178px; }
+  .legend { flex: 1; min-width: 0; }
+  .lg { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 12.5px; }
+  .lg .sw { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 10px; }
+  .lg .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lg .pc { color: #5b6070; font-variant-numeric: tabular-nums; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th { text-align: left; color: #7b8092; font-weight: 500; padding: 7px 8px; border-bottom: 1px solid #e6e8ee; }
+  td { padding: 7px 8px; border-bottom: 1px solid #f1f2f6; font-variant-numeric: tabular-nums; }
+  td.nm { font-variant-numeric: normal; }
+  tr:last-child td { border-bottom: none; }
+
+  .empty { color: #9aa0b0; text-align: center; padding: 40px 0; font-size: 13px; }
+  .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; }
+  button {
+    padding: 7px 15px; border: 1px solid #d9dbe4; background: #fff; border-radius: 8px;
+    cursor: pointer; font-size: 12.5px; font-family: inherit; color: #3a3f52;
+  }
+  button:hover { background: #f3f5fa; }
+  button.danger { color: #a32d2d; border-color: #edcccc; }
+  button.danger:hover { background: #fdf3f3; }
+  .hint { color: #9aa0b0; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>番茄统计</h1>
+<div class="sub">按任务名称汇总 · 占比按专注时长计算</div>
+
+<div class="cards">
+  <div class="card"><div class="lb">今日完成</div><div class="vl" id="cToday">0<small>个</small></div></div>
+  <div class="card"><div class="lb">累计专注</div><div class="vl" id="cMin">0<small>分钟</small></div></div>
+  <div class="card"><div class="lb">任务种类</div><div class="vl" id="cKinds">0<small>类</small></div></div>
+</div>
+
+<div class="panel">
+  <h2>按名称占比</h2>
+  <div id="chartBox">
+    <div class="chartrow">
+      <div class="donut"><svg id="donut" viewBox="0 0 120 120" width="178" height="178"></svg></div>
+      <div class="legend" id="legend"></div>
+    </div>
+  </div>
+  <div class="empty hidden" id="emptyTip">还没有记录。右键雪乃 → 开始番茄钟。</div>
+</div>
+
+<div class="panel">
+  <h2>明细</h2>
+  <table>
+    <thead><tr><th>任务</th><th>完成</th><th>放弃</th><th>时长</th><th>占比</th></tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  <div class="empty hidden" id="emptyTip2">暂无数据</div>
+</div>
+
+<div class="foot">
+  <span class="hint" id="fileHint"></span>
+  <button class="danger" id="btnClear">清空全部记录</button>
+</div>
+
+<script src="stats.js"></script>
+</body>
+</html>

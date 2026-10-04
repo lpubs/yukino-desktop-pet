@@ -1,503 +1,444 @@
-// main.js —— 主进程：窗口管理 / 气泡窗口 / 心跳看门狗 / 系统空闲检测 / 右键菜单 / 缩放 / 挡屏 / 持久化
-//            + v1.6.0 番茄钟 / 倒计时 / 专注面板
-// v1.5.0 架构级稳定版：根治"放久以后无法触碰、拖不动"
+// 雪乃桌宠 · 主进程
 //
-//   v1.3.x：渲染层 mousemove + setIgnoreMouseEvents(true,{forward:true}) —— Windows 上 forward
-//           转发在锁屏/息屏后静默失效 → 永远卡在穿透态。
-//   v1.4.0：主进程轮询光标切换穿透 —— 轮询本身可靠，但"反复切换 WS_EX_TRANSPARENT 样式"
-//           这条路径在部分机器上依然会失效（用户实测仍复现）。
-//   v1.5.0：**彻底废除"穿透切换"机制**（VPet / Shimeji 等成熟桌宠验证过的架构）：
-//     1) 桌宠窗口 = 立绘大小，永久可交互。程序从创建到退出**从不调用** setIgnoreMouseEvents
-//        —— 不切换就不会坏，这一整类失效被整体消灭。
-//     2) 台词气泡拆分到独立窗口（永久穿透、纯展示、永不需要交互）。
-//     3) 心跳看门狗：渲染层每 5s 报活；主进程 35s 收不到 → 自动重载页面。
-//        覆盖"画面定格但交互全死"的渲染层静默假死（与用户症状吻合的另一候选根因）。
-//     4) 每 10 分钟 + 系统唤醒时重申置顶 / 可用状态。
-//   代价：立绘矩形内的透明边角（她身体两侧的小块空白）也会接住鼠标，不再穿透到下层窗口。
-const { app, BrowserWindow, ipcMain, Menu, screen, powerMonitor } = require('electron');
+// 架构原则（这三条是被长期挂机实测逼出来的，不是风格偏好）：
+//   1. 桌宠窗口从创建到销毁**永不调用 setIgnoreMouseEvents**。
+//      Windows 上鼠标转发会在锁屏/息屏/DWM 事件后静默失效，
+//      窗口会永久卡在穿透态 —— 用户表现为"挂机以后点不到"。
+//      反复切换这个状态也治不好（调用成功、状态却漂移），所以直接废除它。
+//   2. 周期巡检并还原窗口几何。DWM 在锁屏/息屏/睡眠/分辨率变更后会悄悄改掉
+//      透明无边框窗口的尺寸，而代码只在用户主动缩放时才设置尺寸，于是错误一旦
+//      发生就永久停留 —— 用户表现为"窗口被压扁"。
+//   3. 渲染层心跳看门狗。渲染进程假死不一定会触发 unresponsive /
+//      render-process-gone，主进程根本不知道出事了 —— 用户表现为"人还在，
+//      点什么都没反应"。
+const { app, BrowserWindow, Tray, Menu, ipcMain, screen, powerMonitor, nativeImage, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { createPomodoro } = require('./pomodoro');
+// 位置约束的纯数学。抽成独立文件是为了让 renderer/preview.html 的替身能用同一份，
+// 从而"拖不出屏幕"这件事在浏览器里就能验收（本机 Electron 起不来）。
+const { clampPos: clampInto } = require('./clamp.js');
 
-const ZOOM_MIN = 0.5, ZOOM_MAX = 2.5;     // 缩放范围
-
-// --- 透明窗口的 GPU 组合（Windows 透明是机器相关的，见 electron#40515）---
-// 实测可用组合：禁用硬件加速 + 保留透明视觉。不要加 disable-gpu / disable-gpu-compositing（会出黑边）。
-// 如果换机器后出现黑/蓝矩形：把下面两行删掉再重启试一次（即全默认硬件加速）。
 app.commandLine.appendSwitch('enable-transparent-visuals');
 app.disableHardwareAcceleration();
-// 番茄钟结束铃声在气泡窗口用 Web Audio 合成；桌宠场景没有用户手势，放开自动播放限制
-app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
-let win = null;                           // 桌宠窗口（立绘大小，永久可交互）
-let bubbleWin = null;                     // 气泡窗口（永久穿透，纯展示）
-let settingsPath = null;
-let config = null;                        // assets/config.json（尺寸的单一数据源）
-let blockMode = false;                    // 是否处于挡屏模式
-let prevBounds = null;                    // 挡屏前的窗口位置（退出挡屏时精确还原）
-let bubbleVisible = false;
-let bubbleTimer = null;
-let panelWin = null;                      // 专注面板窗口（v1.6.0，可交互，按需创建）
-let pomo = null;                          // 番茄钟引擎（v1.6.0）
-// 用户设置（白名单字段），存放在 userData/settings.json
-const DEFAULT_SETTINGS = { outfit: 0, muted: false, remindPaused: false, zoom: 1 };
-let settings = { ...DEFAULT_SETTINGS };
+// ---------- 窗口尺寸 ----------
+// 为什么是 404 而不是 360（这是被素材逼出来的，不是拍脑袋）：
+//   素材统一 560 高，pet.css 用 height:100% 落位，所以**显示高度 = 角色区高度**，
+//   显示宽度 = 素材宽 × (角色高 / 560)。最宽的一套是女仆装（544px），
+//   它要在 400 高的角色区里完整显示需要 544×400/560 ≈ 389px 的宽度。
+//   上一版窗口只有 360 宽，于是女仆装被宽度限制压到 367 高，而水手服能到 400 高 ——
+//   换装时角色会**肉眼可见地变大变小**，且 360 宽里塞一个 196px 宽的水手服
+//   会留下大片空白接住鼠标。404 让四套全部按 400 高显示，高度一致、空白也更少。
+//   约束的代价：素材宽度不得超过 PET_MAX_SPRITE_W（selftest 会卡住这条）。
+//
+// ── 窗口比角色高（v3.2.3 起）──
+// 窗口**不再等于**角色高度：顶部多留一条 TOP_PAD 专门放气泡。
+// 角色区 = 窗口底部那一条（pet.css 的 #petArea），于是：
+//     窗口高 BASE_H = 469 = 角色高 PET_H(400) + 留白 69
+//     留白 = 窗口宽 × 17%，三档等比（小档 49px / 中档 69px / 大档 88px）
+// 效果：气泡从"压在她头发上"变成"悬在她头顶上方"，而角色显示大小一点没变。
+// ★ 凡是"按高度撑满"的换算（显示宽 / padX / 素材宽度上限）一律用 PET_H；
+//   用 BASE_H 会把角色算宽 —— 贴边时留缝、素材宽度上限也会卡错。
+const BASE_W = 404;
+const PET_H = 400;                    // 角色显示高度（基准档）
+const TOP_PAD_RATIO = 0.17;           // 顶部留白 / 窗口宽。与 pet.css 的 #petArea 同源，selftest 比对
+const BASE_H = PET_H + Math.round(BASE_W * TOP_PAD_RATIO);      // = 469，窗口高
+const RENDER_H = 560;                                           // 素材高度，与 build_assets.py 的 --target 一致
+const PET_MAX_SPRITE_W = Math.floor(BASE_W * RENDER_H / PET_H); // = 565，超出就会被窗口裁掉发梢
 
-// ---------- 心跳看门狗状态 ----------
-let lastHb = Date.now();                  // 渲染层最近一次报活时间
-let reloadCount = 0;                      // 本小时内已自动重载次数
-let reloadHourStart = Date.now();
+// 三档大小。缩放只改窗口尺寸，sink / 地面线 / 位置约束都跟着 winSize() 走，
+// 所以放大缩小以后落点依然正确（不会因为换了尺寸就沉进任务栏或悬空）。
+const SIZES = { small: 0.72, medium: 1, large: 1.28 };
+let petScale = SIZES.medium;
 
-function clampZoom(z) { return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number(z) || 1)); }
+const DATA_DIR = () => app.getPath('userData');
 
-function loadSettings() {
-  let raw = {};
-  try { raw = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch (e) {}
-  settings = { ...DEFAULT_SETTINGS };
-  // 只接受白名单字段，忽略旧版本写入的多余 key
-  for (const k of Object.keys(DEFAULT_SETTINGS)) if (k in raw) settings[k] = raw[k];
-  if (!Number.isFinite(settings.zoom)) settings.zoom = 1;
-  settings.zoom = clampZoom(settings.zoom);
-}
-function saveSettings() {
-  try { fs.writeFileSync(settingsPath, JSON.stringify(settings)); } catch (e) {}
-}
+// 每个服装的"入地"像素：素材以底边对齐（窗口底边 == 图像底边）。
+//
+// 四套**全都是半身像** —— 参考图本身就在大腿处切断，原画没画脚
+// （冬装那张看着像全身，其实原图底部就是"裙摆 + 大腿 + 长袜"的切面）。
+// 所以四套统一 sink = 40：把这刀切面沉到任务栏后面去。
+// 少了它，切面会明晃晃地横在任务栏上沿，像立在桌面上的一截纸片。
+//
+// 真·全身像（脚底是自然收尾）才该用 0 —— 那时脚正好踩在工作区底边。
+// 表留着就是为了记住这个区分，别再把半身像填成 0。
+//
+// 注意 sink 是**屏幕物理量**（任务栏高度），不随缩放变 —— 角色放大后
+// 切口仍在窗口底边，遮挡关系和原来一样。
+const OUTFIT_SINK = { maid: 40, sailor: 40, coat: 40, winter: 40 };
+const sinkOf = (k) => OUTFIT_SINK[k] || 0;
 
-function sendToPet(ch, ...args) {
-  if (win && !win.isDestroyed()) win.webContents.send(ch, ...args);
-}
-function sendToBubble(ch, ...args) {
-  if (bubbleWin && !bubbleWin.isDestroyed()) bubbleWin.webContents.send(ch, ...args);
-}
-function sendToPanel(ch, ...args) {
-  if (panelWin && !panelWin.isDestroyed()) panelWin.webContents.send(ch, ...args);
-}
-
-// ---------- 尺寸（唯一数据源：config.json 的 window 段 = 立绘大小） ----------
-function baseSize() {
-  const w = (config && config.window && config.window.width) || 220;
-  const h = (config && config.window && config.window.height) || 320;
-  return { w, h };
-}
-function winSize() {
-  const z = settings.zoom;
-  const b = baseSize();
-  return { w: Math.round(b.w * z), h: Math.round(b.h * z), z };
-}
-function bubbleSize() {
-  const z = settings.zoom;
-  return { w: Math.round(300 * z), h: Math.round(150 * z) };   // v1.6.0: 150 = 台词气泡 + 顶部倒计时徽章空间
-}
-function defaultPosition() {
-  const wa = screen.getPrimaryDisplay().workArea;
-  const { w, h } = winSize();
-  return { x: wa.x + wa.width - w - 40, y: wa.y + wa.height - h };
-}
-// 窗口当前所在的显示器（多屏支持）
-function currentDisplay() {
-  if (!win || win.isDestroyed()) return screen.getPrimaryDisplay();
-  const b = win.getBounds();
-  return screen.getDisplayNearestPoint({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
-}
-
-// ---------- 气泡 ----------
-// 气泡永远出现在桌宠窗口正上方，尾巴指向头顶；跟随桌宠移动；被工作区上边缘截住
-function placeBubble() {
-  if (!bubbleWin || bubbleWin.isDestroyed() || !win || win.isDestroyed()) return;
-  const { w: bw, h: bh } = bubbleSize();
-  const b = win.getBounds();
-  const wa = currentDisplay().workArea;
-  const bx = Math.min(Math.max(Math.round(b.x + (b.width - bw) / 2), wa.x), wa.x + wa.width - bw);
-  const by = Math.max(Math.round(b.y - bh + 10 * settings.zoom), wa.y);
-  bubbleWin.setMinimumSize(1, 1);
-  bubbleWin.setSize(bw, bh);
-  bubbleWin.setPosition(bx, by);
-}
-function showBubble(text, ms) {
-  if (!bubbleWin || bubbleWin.isDestroyed() || blockMode) return;   // 挡屏时用遮罩字幕，不用气泡
-  clearTimeout(bubbleTimer);
-  placeBubble();
-  sendToBubble('bubble-show', text);
-  bubbleWin.showInactive();               // 不抢焦点
-  bubbleVisible = true;
-  bubbleTimer = setTimeout(hideBubble, Math.max(800, ms || 3200));
-}
-function hideBubble() {
-  clearTimeout(bubbleTimer);
-  bubbleVisible = false;
-  if (bubbleWin && !bubbleWin.isDestroyed()) bubbleWin.hide();
-}
-
-// ---------- 窗口创建 ----------
-function createWindows() {
-  const { w, h } = winSize();
-  const pos = defaultPosition();
-  win = new BrowserWindow({
-    width: w, height: h,
-    x: pos.x, y: pos.y,
-    transparent: true,                     // 背景透明
-    backgroundColor: '#00000000',
-    frame: false,                          // 无边框
-    resizable: false,
-    alwaysOnTop: true,                     // 始终置顶
-    skipTaskbar: true,                     // 不显示在任务栏
-    hasShadow: false,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      backgroundThrottling: false          // 别让 Chromium 把"被遮挡窗口"的定时器/动画降频
-    }
-  });
-  win.setAlwaysOnTop(true, 'screen-saver');
-  win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-
-  // 气泡窗口：纯展示。setIgnoreMouseEvents(true) 只在创建时调用一次，之后**永不更改**
-  // —— 它不需要任何鼠标交互，所以也不存在"切不回来"的失效问题。
-  const bs = bubbleSize();
-  bubbleWin = new BrowserWindow({
-    width: bs.w, height: bs.h,
-    show: false,
-    x: pos.x, y: pos.y - bs.h,
-    transparent: true,
-    backgroundColor: '#00000000',
-    frame: false,
-    resizable: false,
-    movable: false,
-    skipTaskbar: true,
-    hasShadow: false,
-    alwaysOnTop: true,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      backgroundThrottling: false
-    }
-  });
-  bubbleWin.setAlwaysOnTop(true, 'screen-saver');
-  bubbleWin.loadFile(path.join(__dirname, 'renderer', 'bubble.html'));
-  bubbleWin.once('ready-to-show', () => {
-    try { bubbleWin.setIgnoreMouseEvents(true); } catch (e) {}   // 一次性，永不再动
-  });
-
-  // 渲染层健康：崩溃 / 无响应 → 退出挡屏并重载（心跳看门狗兜底静默假死，见下方循环）
-  win.webContents.on('render-process-gone', (_, details) => {
-    if (details.reason === 'crashed' && reloadCount < 6) rescueReload(details.reason);
-  });
-  win.webContents.on('unresponsive', () => rescueReload('unresponsive'));
-  win.on('closed', () => { win = null; app.quit(); });
-}
-
-// 渲染层抢救性重载（崩溃 / 无响应 / 心跳超时共用）
-function rescueReload() {
-  if (!win || win.isDestroyed()) return;
-  reloadCount++;
-  lastHb = Date.now();
-  if (blockMode) hardExitBlock();          // 重载后渲染层状态会丢，先退出挡屏防"全屏卡死没按钮"
-  try { win.webContents.reload(); } catch (e) {}
-}
-
-// 渲染层重载后 block 状态会丢，主进程同步退出挡屏，避免"全屏窗口卡住没有按钮"
-function hardExitBlock() {
-  if (!blockMode) return;
-  blockMode = false;
-  clearTimeout(bubbleTimer);
-  hideBubble();
-  if (win && !win.isDestroyed()) {
-    win.setMinimumSize(1, 1);
-    if (prevBounds) win.setBounds(prevBounds);
-    else { const { w, h } = winSize(); const p = defaultPosition(); win.setBounds({ x: p.x, y: p.y, width: w, height: h }); }
-  }
-  prevBounds = null;
-}
-
-// ---------- 专注面板窗口（v1.6.0）----------
-// 可交互的独立小窗口：设置时长、开始/暂停/停止、看统计。按需创建，关闭只是隐藏可复用。
-function openPanel() {
-  if (panelWin && !panelWin.isDestroyed()) {
-    panelWin.show();
-    panelWin.focus();
-    sendToPanel('pomo-state', pomo.state());
-    return;
-  }
-  panelWin = new BrowserWindow({
-    width: 420, height: 800,   // v1.7.0：加名称/预设/明细区域，加高
-    show: false,
-    frame: false, resizable: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    backgroundColor: '#f7f8fa',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      backgroundThrottling: false
-    }
-  });
-  panelWin.setAlwaysOnTop(true, 'screen-saver');
-  panelWin.loadFile(path.join(__dirname, 'renderer', 'panel.html'));
-  panelWin.once('ready-to-show', () => {
-    panelWin.show();
-    if (pomo) sendToPanel('pomo-state', pomo.state());
-  });
-  panelWin.on('closed', () => { panelWin = null; });
-}
-
-// ---------- 周期性自愈 ----------
-// 1) 心跳看门狗：渲染层每 5s 报活；35s 没有心跳 → 判定静默假死，自动重载。
-//    这覆盖"她还在屏幕上（定格画面）但点什么都没反应"的情况。
-// 2) 每 10 分钟重申置顶 / 可用（防系统事件悄悄改掉窗口属性）。
-function reassertWindows() {
+// ---------- 素材尺寸表 ----------
+// 主进程必须知道每套素材的宽高比。原因：横向约束夹的是**角色外轮廓**而不是
+// 窗口矩形（见 clamp.js 的 padX），而角色在窗口里是水平居中的，
+// 所以要算出两侧各有多少透明边。
+// 直接读 PNG 头就行 —— IHDR 里宽高各占 4 字节，偏移 16 / 20，
+// 比为了一个比值去引图像库便宜得多，也不会因为解码大图拖慢启动。
+function pngSize(file) {
   try {
-    if (win && !win.isDestroyed()) {
-      win.setEnabled(true);
-      win.setAlwaysOnTop(true, 'screen-saver');
-      win.moveTop();
-    }
-    if (bubbleWin && !bubbleWin.isDestroyed()) {
-      bubbleWin.setEnabled(true);
-      bubbleWin.setAlwaysOnTop(true, 'screen-saver');
-    }
-  } catch (e) {}
+    const b = fs.readFileSync(file);
+    if (b.length < 24 || b.readUInt32BE(0) !== 0x89504e47) return null;
+    return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+  } catch (e) { return null; }
 }
-function startWatchdogs() {
-  setInterval(() => {
-    if (!win || win.isDestroyed()) return;
-    const now = Date.now();
-    if (now - reloadHourStart > 3600000) { reloadHourStart = now; reloadCount = 0; }
-    if (now - lastHb > 35000 && reloadCount < 6) {
-      rescueReload();
-    }
-  }, 10000);
-  setInterval(reassertWindows, 10 * 60 * 1000);
+const SPRITE = {};
+for (const k of Object.keys(OUTFIT_SINK)) {
+  const s = pngSize(path.join(__dirname, 'assets', 'sprites', k + '.png'));
+  if (s) SPRITE[k] = s;
+}
+// 角色显示高度（基准档 × 缩放）。窗口比它高 TOP_PAD —— 那一条里没有角色，
+// 所以凡"按高度撑满"的换算都用这个，别用 winSize().h。
+const petDisplayH = () => Math.round(PET_H * petScale);
+
+// 角色显示宽（素材按 height:100% 落位在 #petArea 里，故显示宽 = 素材宽 × 角色高 / 素材高）
+// 参数是**角色显示高度**，不是窗口高度 —— 窗口顶部那一截留白里没有角色。
+function spriteDisplayW(outfit, displayH) {
+  const s = SPRITE[outfit];
+  if (!s || !s.h) return 0;
+  return s.w * (displayH / s.h);
+}
+// 两侧的透明边。夹取时把它放到屏幕外，角色才能真正贴住屏幕边缘。
+function padXOf(outfit) {
+  const sw = spriteDisplayW(outfit, petDisplayH());
+  if (!sw) return 0;
+  return Math.max(0, Math.round((winSize().w - sw) / 2));
 }
 
-// ---------- 按当前 zoom 调整窗口尺寸，保持"底部中心"锚点不动 ----------
-function applySize() {
-  if (!win || win.isDestroyed() || blockMode) return;
-  const b = win.getBounds();
+let petWin = null, statsWin = null, tray = null;
+let pinned = true;
+let currentOutfit = 'maid';
+let blockMode = false, blockUntil = 0;   // 拖拽 / 重载期间暂停巡检，避免打架
+
+const winSize = () => ({
+  w: Math.round(BASE_W * petScale),
+  h: Math.round(BASE_H * petScale)
+});
+
+// ---------- 位置约束 ----------
+// 桌宠绝不允许离开屏幕。一旦离开，用户除了手改配置文件没有任何办法叫回来
+// （它不在任务栏、没有窗口列表入口）。所以**所有** setPosition 都必须先过这里。
+//
+// 用 workArea 而不是 workAreaSize：前者带 x/y，多显示器/任务栏在左侧时才算得对。
+let waCache = null;
+function workAreaFor(x, y) {
+  // moveTo 每次 mousemove 都会被调用（~60/s），getDisplayNearestPoint 是原生调用，
+  // 不缓存的话拖拽会明显发涩。落在上次结果范围内就直接复用。
+  if (waCache &&
+      x >= waCache.x - 64 && x <= waCache.x + waCache.width + 64 &&
+      y >= waCache.y - 64 && y <= waCache.y + waCache.height + 64) return waCache;
+  waCache = screen.getDisplayNearestPoint({ x: Math.round(x), y: Math.round(y) }).workArea;
+  return waCache;
+}
+function clampPos(x, y, outfit) {
   const { w, h } = winSize();
-  const cx = b.x + b.width / 2;            // 底部中心 x
-  const by = b.y + b.height;               // 底边 y
-  win.setMinimumSize(1, 1);
-  win.setSize(w, h);
-  win.setPosition(Math.round(cx - w / 2), Math.round(by - h));
-  if (bubbleVisible) placeBubble();        // 气泡跟着重新定位
+  const of = outfit || currentOutfit;
+  return clampInto(x, y, workAreaFor(x, y), w, h, sinkOf(of), padXOf(of));
+}
+function moveToClamped(x, y) {
+  if (!petWin || petWin.isDestroyed()) return null;
+  const p = clampPos(x, y, currentOutfit);
+  petWin.setPosition(p.x, p.y);
+  return p;
+}
+function groundYOf(display, outfit) {
+  const wa = display.workArea;
+  return wa.y + wa.height - winSize().h + sinkOf(outfit);
+}
+// 换装 / 缩放后地面线与窗口尺寸都会变，把窗口按新约束拉回合法位置
+function resnap() {
+  if (!petWin || petWin.isDestroyed()) return;
+  const b = petWin.getBounds();
+  moveToClamped(b.x, b.y);
 }
 
-// 修改缩放：立即应用窗口尺寸，并广播给两个渲染进程
-function setZoom(z) {
-  if (blockMode) return;                   // 挡屏期间不响应缩放，避免立绘/遮罩错乱
-  settings.zoom = clampZoom(z);
-  saveSettings();
-  applySize();
-  sendToPet('apply-zoom', settings.zoom);
-  sendToBubble('apply-zoom', settings.zoom);
+// 改窗口尺寸，**以底边 + 水平中心为锚**。
+// 以顶边为锚会让人物在放大时往上蹿、缩小时沉进任务栏；
+// 以底边为锚则"脚一直踩在原地"，符合直觉。
+function applyScale(next) {
+  petScale = SIZES[next] ? SIZES[next] : SIZES.medium;
+  if (!petWin || petWin.isDestroyed()) return;
+  const b = petWin.getBounds();
+  const cx = b.x + b.width / 2;
+  const bottom = b.y + b.height;
+  const { w, h } = winSize();
+  if (b.width === w && b.height === h) return;
+  petWin.setMinimumSize(1, 1);        // 窗口是 resizable:false，先松绑再改尺寸
+  petWin.setSize(w, h);
+  petWin.setPosition(Math.round(cx - w / 2), Math.round(bottom - h));
+  resnap();
+}
+
+// ---------- 几何自愈 ----------
+function enforceSize() {
+  if (!petWin || petWin.isDestroyed()) return;
+  if (blockMode && Date.now() < blockUntil) return;
+  const b = petWin.getBounds();
+  const { w, h } = winSize();
+  if (b.width !== w || b.height !== h) {
+    // 以**底边**为锚还原：角色站在地面上，按顶边还原会让她沉进任务栏或浮到半空。
+    // （winSize() 已经把当前缩放档算进去了，所以这一条同时也自愈"缩放没生效"。）
+    const bottomY = b.y + b.height;
+    petWin.setMinimumSize(1, 1);
+    petWin.setSize(w, h);
+    petWin.setPosition(Math.round(b.x + (b.width - w) / 2), Math.round(bottomY - h));
+  }
+  // 位置也要自愈。只还原尺寸是不够的：窗口若是被拖到屏幕外（或被 DWM 挪出去），
+  // 尺寸完全正常、巡检却看不出任何问题，用户就只能看到桌宠凭空消失了。
+  const b2 = petWin.getBounds();
+  const p = clampPos(b2.x, b2.y, currentOutfit);
+  if (p.x !== b2.x || p.y !== b2.y) petWin.setPosition(p.x, p.y);
+}
+
+function createPet() {
+  const d = screen.getPrimaryDisplay();
+  const wa = d.workArea;
+  const { w, h } = winSize();
+  // 位置也持久化：不然每次重启都回到右上角，用户拖动过的位置白拖了。
+  const saved = loadJSON(setFile(), {}).pos;
+  const start = saved
+    ? clampPos(saved.x, saved.y, currentOutfit)
+    : {
+        x: Math.max(wa.x, wa.x + wa.width - w - 60),
+        y: groundYOf(d, currentOutfit)      // 落地位置与"拖拽松手"用的是同一条地面线
+      };
+  petWin = new BrowserWindow({
+    width: w, height: h,
+    x: start.x,
+    y: start.y,
+    transparent: true, frame: false, resizable: false,
+    alwaysOnTop: true, skipTaskbar: true, hasShadow: false,
+    focusable: true, fullscreenable: false, maximizable: false, minimizable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      backgroundThrottling: false,      // 被遮挡时 rAF/timer 不被节流
+      contextIsolation: true, nodeIntegration: false
+    }
+  });
+  petWin.setAlwaysOnTop(true, 'screen-saver');
+  petWin.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  petWin.on('closed', () => { petWin = null; });
+
+  setInterval(enforceSize, 20000);                       // 20s 几何巡检
+  setInterval(() => {                                     // 10min 重申置顶
+    if (petWin && !petWin.isDestroyed() && pinned) {
+      petWin.setAlwaysOnTop(true, 'screen-saver');
+      petWin.moveTop();
+    }
+  }, 10 * 60 * 1000);
+
+  const revive = () => setTimeout(() => {                 // 系统事件自愈
+    if (!petWin || petWin.isDestroyed()) return;
+    petWin.setEnabled(true);
+    if (pinned) petWin.setAlwaysOnTop(true, 'screen-saver');
+    petWin.moveTop();
+    enforceSize();
+  }, 1500);
+  powerMonitor.on('resume', revive);
+  powerMonitor.on('unlock-screen', revive);
+}
+
+// ---------- 持久化 ----------
+function loadJSON(file, def) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf-8')); } catch (e) { return def; }
+}
+function saveJSON(file, obj) {
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(obj, null, 2));
+  } catch (e) { /* 静默：写不进去不该让桌宠崩掉 */ }
+}
+const pomFile = () => path.join(DATA_DIR(), 'pomodoro_records.json');
+const setFile = () => path.join(DATA_DIR(), 'settings.json');
+const readSettings = () => loadJSON(setFile(), { outfit: 'maid', pinned: true, scale: 'medium' });
+function patchSettings(patch) {
+  const next = Object.assign(readSettings(), patch);
+  saveJSON(setFile(), next);
+  return next;
+}
+
+// ---------- IPC ----------
+ipcMain.handle('pomodoro:getRecords', () => loadJSON(pomFile(), []));
+ipcMain.handle('pomodoro:addRecord', (e, rec) => {
+  const list = loadJSON(pomFile(), []);
+  list.push(rec);
+  saveJSON(pomFile(), list);
+  return true;
+});
+ipcMain.handle('pomodoro:clearAll', () => { saveJSON(pomFile(), []); return true; });
+
+ipcMain.handle('settings:get', () => readSettings());
+ipcMain.handle('settings:set', (e, s) => {
+  const next = patchSettings(s);
+  if (s.outfit !== undefined) { currentOutfit = s.outfit; resnap(); }
+  if (s.pinned !== undefined) pinned = !!s.pinned;
+  if (s.scale !== undefined) applyScale(s.scale);
+  return next;
+});
+
+ipcMain.handle('pet:setPinned', (e, v) => {
+  pinned = !!v;
+  if (petWin && !petWin.isDestroyed()) petWin.setAlwaysOnTop(pinned, 'screen-saver');
+  return pinned;
+});
+ipcMain.handle('pet:moveTo', (e, x, y) => moveToClamped(x, y));
+// 拖拽松手 / 缩放之后落一次位置。存的是**夹紧后**的坐标，
+// 不然被夹回边缘的窗口会把自己贴边的坐标覆盖掉，下次启动又跑到屏幕外。
+ipcMain.handle('pet:savePos', (e, x, y) => {
+  const p = clampPos(x, y, currentOutfit);
+  patchSettings({ pos: p });
+  return p;
+});
+ipcMain.handle('pet:getBounds', () => (petWin && !petWin.isDestroyed() ? petWin.getBounds() : null));
+ipcMain.handle('pet:getWorkArea', () => {
+  const b = petWin && !petWin.isDestroyed() ? petWin.getBounds() : null;
+  const d = b ? screen.getDisplayNearestPoint({ x: b.x, y: b.y }) : screen.getPrimaryDisplay();
+  const { w, h } = winSize();
+  // 带上 sink 与当前窗口尺寸，渲染层才能算出和主进程**完全一致**的地面线，
+  // 以及"角色在窗口里实际占多宽"（边缘吸附要用）。缩放以后 petH 变了，
+  // 渲染层不去问主进程的话就会按旧的 400 算，落点会差一截。
+  return Object.assign({}, d.workArea, { sink: sinkOf(currentOutfit), petW: w, petH: h });
+});
+ipcMain.handle('pet:setBlock', (e, v) => {
+  blockMode = !!v;
+  // 拖拽时若鼠标移出窗口，mouseup 可能收不到，blockMode 就会永久为真，
+  // 于是自愈被永久关掉 —— 桌宠飞出去再也回不来。给个硬超时兜底。
+  blockUntil = v ? Date.now() + 60 * 1000 : 0;
+});
+ipcMain.handle('pet:showStats', () => createStatsWin());
+
+// 心跳看门狗
+let lastHeartbeat = Date.now();
+let reloadCount = 0;
+setInterval(() => {
+  if (Date.now() - lastHeartbeat > 35000 && reloadCount < 6) {
+    reloadCount++;
+    blockMode = false;
+    if (petWin && !petWin.isDestroyed()) {
+      enforceSize();                       // 重载前先校正几何，否则重载完还是扁的
+      petWin.webContents.reload();
+    }
+  }
+}, 10000);
+setInterval(() => { reloadCount = Math.max(0, reloadCount - 1); }, 10 * 60 * 1000);
+ipcMain.handle('pet:heartbeat', () => { lastHeartbeat = Date.now(); return true; });
+
+// ---------- 统计窗口 ----------
+function createStatsWin() {
+  if (statsWin && !statsWin.isDestroyed()) { statsWin.show(); statsWin.focus(); return; }
+  statsWin = new BrowserWindow({
+    width: 660, height: 640, autoHideMenuBar: true,
+    title: '番茄统计 · 雪乃',
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true }
+  });
+  statsWin.loadFile(path.join(__dirname, 'renderer', 'stats.html'));
+  statsWin.on('closed', () => { statsWin = null; });
 }
 
 // ---------- 右键菜单 ----------
-function buildContextMenu() {
-  const outfitItems = config.outfits.map((o, i) => ({
-    label: o.name,
-    type: 'checkbox',
-    checked: i === settings.outfit,
-    click: () => sendToPet('set-outfit', i)
-  }));
-  // 专注模式子菜单（v1.6.0）：文案随运行状态变化
-  const ps = pomo ? pomo.state() : { mode: 'idle', paused: false };
-  const running = ps.mode !== 'idle';
-  const modeLabel = { focus: '番茄钟进行中…', break: '休息中…', countdown: '倒计时进行中…' };
-  const focusItems = [
-    { label: running ? (modeLabel[ps.mode] || '进行中…') : '开始番茄钟',
-      enabled: !running,
-      click: () => { pomo.startPomodoro(); openPanel(); } },
-    { label: '开始倒计时',
-      enabled: !running,
-      click: () => { pomo.startCountdown(); openPanel(); } },
-    { label: ps.paused ? '继续' : '暂停', enabled: running,
-      click: () => (ps.paused ? pomo.resume() : pomo.pause()) },
-    { label: '停止', enabled: running, click: () => pomo.stop() },
-    { type: 'separator' },
-    { label: '打开专注面板', click: () => openPanel() }
-  ];
+const OUTFITS = [
+  ['maid', '女仆装'],
+  ['sailor', '水手服 + 贝雷帽'],
+  ['coat', '冬大衣 + 围巾'],
+  ['winter', '冬装（全身）']
+];
+const SCALE_LABELS = [['small', '小'], ['medium', '中'], ['large', '大']];
+function currentScaleKey() {
+  const hit = SCALE_LABELS.find(([k]) => SIZES[k] === petScale);
+  return hit ? hit[0] : 'medium';
+}
+function setScale(key) {
+  applyScale(key);
+  patchSettings({ scale: key });
+  if (petWin && !petWin.isDestroyed()) petWin.webContents.send('scale', key);
+}
+function petMenu() {
   return Menu.buildFromTemplate([
-    { label: '更换服装', submenu: outfitItems },
-    { type: 'separator' },
-    { label: '专注模式', submenu: focusItems },
-    { type: 'separator' },
-    { label: '放大', click: () => setZoom(settings.zoom * 1.15), enabled: !blockMode },
-    { label: '缩小', click: () => setZoom(settings.zoom / 1.15), enabled: !blockMode },
-    { label: `重置大小（当前 ${Math.round(settings.zoom * 100)}%）`, click: () => setZoom(1), enabled: !blockMode },
-    { label: '回到默认位置', click: () => { if (!blockMode) { const p = defaultPosition(); movePetTo(p.x, p.y); } } },
-    { type: 'separator' },
     {
-      label: settings.remindPaused ? '恢复提醒' : '暂停提醒',
-      click: () => {
-        settings.remindPaused = !settings.remindPaused;
-        saveSettings();
-        if (settings.muted) hideBubble();
-        sendToPet('settings-changed', { ...settings });
-      }
+      label: '服装', submenu: OUTFITS.map(([k, label]) => ({
+        label, type: 'radio', checked: k === currentOutfit,
+        click: () => {
+          currentOutfit = k;
+          patchSettings({ outfit: k });
+          resnap();
+          if (petWin && !petWin.isDestroyed()) petWin.webContents.send('outfit', k);
+        }
+      }))
     },
     {
-      label: settings.muted ? '取消静音' : '静音',
+      label: '大小（Ctrl + 滚轮）', submenu: SCALE_LABELS.map(([k, label]) => ({
+        label, type: 'radio', checked: k === currentScaleKey(),
+        click: () => setScale(k)
+      }))
+    },
+    { type: 'separator' },
+    { label: '开始番茄钟', click: () => send('action', 'open-pomodoro') },
+    { label: '番茄统计', click: () => createStatsWin() },
+    { type: 'separator' },
+    { label: '走两步', click: () => send('action', 'walk') },
+    {
+      label: pinned ? '取消置顶' : '置顶',
       click: () => {
-        settings.muted = !settings.muted;
-        saveSettings();
-        if (settings.muted) hideBubble();  // 静音立即收起气泡
-        sendToPet('settings-changed', { ...settings });
+        pinned = !pinned;
+        if (petWin && !petWin.isDestroyed()) petWin.setAlwaysOnTop(pinned, 'screen-saver');
+        patchSettings({ pinned });
       }
     },
     { type: 'separator' },
+    { label: '回到屏幕右上角', click: () => {
+        const d = screen.getPrimaryDisplay();
+        moveToClamped(d.workArea.x + d.workArea.width - winSize().w - 60, groundYOf(d, currentOutfit));
+      } },
+    { label: '打开数据目录', click: () => shell.openPath(DATA_DIR()) },
     { label: '退出', click: () => app.quit() }
   ]);
 }
-
-ipcMain.on('show-context-menu', () => {
-  if (!win || win.isDestroyed()) return;
-  buildContextMenu().popup({ window: win });
-});
-
-// ---------- 气泡 / 心跳 IPC ----------
-ipcMain.on('say', (_, text, ms) => {
-  if (typeof text !== 'string' || !text) return;
-  if (settings.muted) return;              // 静音：不显示
-  showBubble(text, ms);
-});
-ipcMain.on('hb', () => { lastHb = Date.now(); });
-
-// ---------- 番茄钟 / 倒计时 IPC（v1.6.0）----------
-ipcMain.on('pomo:start', (_, name) => { if (pomo) pomo.startPomodoro(name); });
-ipcMain.on('pomo:start-countdown', (_, min, name) => { if (pomo) pomo.startCountdown(min, name); });
-ipcMain.on('pomo:pause', () => { if (pomo) pomo.pause(); });
-ipcMain.on('pomo:resume', () => { if (pomo) pomo.resume(); });
-ipcMain.on('pomo:stop', () => { if (pomo) pomo.stop(); });
-ipcMain.on('pomo:save-cfg', (_, patch) => { if (pomo) pomo.setCfg(patch); });
-ipcMain.on('pomo:close-panel', () => { if (panelWin && !panelWin.isDestroyed()) panelWin.hide(); });
-ipcMain.handle('pomo:get', () => ({
-  state: pomo.state(),
-  stats: pomo.getStats(),
-  records: pomo.getRecords(60)     // v1.7.0：最近明细，供面板复盘
-}));
-
-// ---------- 窗口移动（拖拽 / 跑动）——桌宠和气泡同步移动 ----------
-// 限制在"窗口当前所在显示器"内，至少保留一部分可见，避免被拖出去"找不回来"
-function clampToScreen(x, y, w, h) {
-  const d = screen.getDisplayNearestPoint({ x: x + w / 2, y: y + h / 2 });
-  const wa = d.workArea;
-  const keepX = Math.min(80, w / 2);      // 横向至少可见 80px
-  const keepY = Math.min(80, h / 4);      // 纵向至少可见 80px
-  return {
-    x: Math.min(Math.max(x, wa.x - w + keepX), wa.x + wa.width - keepX),
-    y: Math.min(Math.max(y, wa.y - 20), wa.y + wa.height - keepY)
-  };
+function send(channel, payload) {
+  if (petWin && !petWin.isDestroyed()) petWin.webContents.send(channel, payload);
 }
-function movePetTo(x, y) {
-  if (!win || win.isDestroyed() || blockMode) return;
-  const b = win.getBounds();
-  const p = clampToScreen(Math.round(x), Math.round(y), b.width, b.height);
-  const dx = p.x - b.x, dy = p.y - b.y;
-  if (!dx && !dy) return;
-  win.setPosition(p.x, p.y);
-  if (bubbleVisible && bubbleWin && !bubbleWin.isDestroyed()) {
-    const bb = bubbleWin.getBounds();
-    bubbleWin.setPosition(bb.x + dx, bb.y + dy);
-  }
+
+// ---------- 托盘 ----------
+function createTray() {
+  let img = nativeImage.createEmpty();
+  try {
+    const p = path.join(__dirname, 'assets', 'tray.png');
+    if (fs.existsSync(p)) img = nativeImage.createFromPath(p);
+  } catch (e) { /* 图标缺失不该影响启动 */ }
+  tray = new Tray(img);
+  tray.setToolTip('雪乃桌宠');
+  // 托盘是"桌宠不见了"时唯一的找回入口（它不在任务栏、没有窗口列表），
+  // 所以「回到屏幕右上角」必须放在这里，而不只是右键菜单里。
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: '显示雪乃', click: () => { if (petWin) { petWin.show(); petWin.moveTop(); } } },
+    { label: '回到屏幕右上角', click: () => {
+        const d = screen.getPrimaryDisplay();
+        applyScale(currentScaleKey());      // 顺带把尺寸也还原（万一被改过）
+        moveToClamped(d.workArea.x + d.workArea.width - winSize().w - 60, groundYOf(d, currentOutfit));
+        if (petWin) { petWin.show(); petWin.moveTop(); }
+      } },
+    {
+      label: '大小', submenu: SCALE_LABELS.map(([k, label]) => ({
+        label, type: 'radio', checked: k === currentScaleKey(), click: () => setScale(k)
+      }))
+    },
+    { label: '番茄统计', click: () => createStatsWin() },
+    { type: 'separator' },
+    { label: '退出', click: () => app.quit() }
+  ]));
+  tray.on('click', () => { if (petWin) { petWin.show(); petWin.moveTop(); } });
 }
-ipcMain.on('move-by', (_, dx, dy) => {
-  if (!win || win.isDestroyed()) return;
-  const b = win.getBounds();
-  movePetTo(b.x + Math.round(dx), b.y + Math.round(dy));
-});
-ipcMain.on('move-to', (_, x, y) => movePetTo(Math.round(x), Math.round(y)));
 
-// ---------- 缩放 ----------
-ipcMain.on('set-zoom', (_, z) => setZoom(z));
-
-// ---------- 屏幕信息（渲染进程规划跑动方向用） ----------
-ipcMain.handle('get-screen-info', () => {
-  if (!win || win.isDestroyed()) return null;
-  return { bounds: win.getBounds(), workArea: currentDisplay().workArea };
-});
-
-// ---------- 挡屏模式（240 分钟） ----------
-// 进入：隐藏气泡，记录原始位置，窗口铺满当前显示器工作区；退出：精确还原原始位置
-ipcMain.on('resize-block-mode', (_, on) => {
-  if (!win || win.isDestroyed()) return;
-  if (on) {
-    if (blockMode) return;
-    blockMode = true;
-    hideBubble();
-    prevBounds = win.getBounds();
-    const wa = currentDisplay().workArea;  // 铺满 = 天然不会超出屏幕
-    win.setMinimumSize(1, 1);
-    win.setBounds({ x: wa.x, y: wa.y, width: wa.width, height: wa.height });
-  } else {
-    hardExitBlock();
-  }
-});
-
-// ---------- 渲染进程启动数据 ----------
-ipcMain.handle('get-boot', () => ({ settings: { ...settings }, config }));
-
-ipcMain.on('save-settings', (_, s) => {
-  const patch = {};
-  for (const k of Object.keys(DEFAULT_SETTINGS)) if (k in s) patch[k] = s[k];
-  if ('zoom' in patch) patch.zoom = clampZoom(patch.zoom);
-  Object.assign(settings, patch);
-  saveSettings();
-});
-
-// ---------- 单实例锁：双击两次只开一个桌宠 ----------
-const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) {
-  app.quit();
-} else {
-  app.on('second-instance', () => {
-    if (win && !win.isDestroyed()) win.focus();
+app.whenReady().then(() => {
+  const s = readSettings();
+  currentOutfit = s.outfit || 'maid';
+  pinned = s.pinned !== false;
+  petScale = SIZES[s.scale] || SIZES.medium;   // 缩放要在 createPet 之前生效，否则窗口先按旧尺寸建出来
+  createPet();
+  createTray();
+  ipcMain.on('pet:menu', () => {
+    if (!petWin || petWin.isDestroyed()) return;
+    petMenu().popup({ window: petWin });
   });
+});
 
-  app.whenReady().then(() => {
-    config = JSON.parse(fs.readFileSync(path.join(__dirname, 'assets', 'config.json'), 'utf-8'));
-    settingsPath = path.join(app.getPath('userData'), 'settings.json');
-    loadSettings();
-    // 兜底：设置里的服装索引越界时回到默认
-    if (!Number.isInteger(settings.outfit) || settings.outfit < 0 || settings.outfit >= config.outfits.length) {
-      settings.outfit = 0;
-    }
-    createWindows();
-
-    // 番茄钟引擎（v1.6.0）：台词走气泡、铃声发给气泡窗口合成、状态推给面板、
-    // 运行状态通知桌宠渲染层（久坐静默用）。计时基于墙钟，不依赖渲染层。
-    pomo = createPomodoro({
-      config,
-      storePath: path.join(app.getPath('userData'), 'pomodoro.json'),
-      say: (text, ms) => { if (!settings.muted) showBubble(text, ms); },
-      ring: () => sendToBubble('ring'),
-      broadcastState: (s) => {
-        sendToPanel('pomo-state', s);
-        // 头顶倒计时徽章：运行中每秒推送；关闭气泡显示与否由 cfg.countdownBubble 决定
-        sendToBubble('pomo-remaining', (s.mode !== 'idle' && s.cfg.countdownBubble) ? s : null);
-      },
-      broadcastActive: (on) => sendToPet('pomo-active', on)
-    });
-
-    // 每秒向渲染进程广播系统空闲时长（秒），用于待机跑动 + 久坐计时
-    setInterval(() => {
-      sendToPet('idle-time', powerMonitor.getSystemIdleTime());
-    }, 1000);
-
-    startWatchdogs();
-
-    // 系统从睡眠/锁屏恢复：立即重申窗口状态 + 补发空闲时长 + 番茄钟补查超时
-    const rearm = () => setTimeout(() => {
-      reassertWindows();
-      sendToPet('idle-time', powerMonitor.getSystemIdleTime());
-      if (pomo) pomo.kick();
-    }, 1500);
-    powerMonitor.on('resume', rearm);
-    powerMonitor.on('unlock-screen', rearm);
-  });
-}
-
-app.on('window-all-closed', () => app.quit());
+// 托盘常驻，关掉窗口不退出
+app.on('window-all-closed', () => {});

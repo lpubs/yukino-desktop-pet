@@ -1,12 +1,38 @@
-# 依赖与产物
+# ---- 依赖 ----
 node_modules/
-release/
-release-src/
+package-lock.json.bak
 
-# 运行时生成
-*.log
-.DS_Store
+# ---- 构建产物 ----
+dist/
+build/icon.ico.bak
+
+# ---- 本地中间产物（不进仓库）----
+_work/
+_review/
+
+# ---- 凭证与隐私：本机文件，绝不入库 ----
+# tools/scan_secrets.py 是发布前的最后一道闸门，这里只是第一道防线。
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+.npmrc
+.privacy-denylist
+privacy-denylist.txt
+secrets.json
+credentials.json
+
+# ---- 模型权重：176MB，超过 GitHub 单文件 100MB 上限，属于备用路径 ----
+models/
+
+# ---- 系统 ----
 Thumbs.db
+desktop.ini
+.DS_Store
 
-# 个人测试脚本临时产物
-tools/test-store.json
+# ---- 编辑器 ----
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,357 @@
+/* 雪乃桌宠 · 样式
+   透明窗口里没有"页面"，只有角色和它的气泡。
+   一条硬规则：图片永远 object-fit:contain + 底部锚定，绝不硬拉伸 ——
+   即使前两道几何自愈都失效，内容也只会等比缩放，不会变形。 */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%; height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  user-select: none;
+  cursor: default;
+}
+
+.hidden { display: none !important; }
+
+/* ---------- 舞台 ---------- */
+#stage {
+  position: absolute; inset: 0;
+  display: flex;
+  align-items: flex-end;      /* 角色站在窗口底部 */
+  justify-content: center;
+  /* 气泡的尺寸全部用 cqw（容器查询单位）表达 —— "窗口宽度的 1%"，
+     所以 #stage 必须声明成容器。它恰好就是"窗口"本身：
+     真机里 inset:0 铺满窗口，预览页里是那个 404x400 的框。
+     这样三种缩放下气泡都会跟着窗口一起缩放，不需要 JS 参与。
+     用 inline-size 而非 size：只需要横向参照，不必让内容脱离尺寸计算。
+     注意这里没有 paint 包含 —— 跳跃之类的动画不会被裁掉。 */
+  container-type: inline-size;
+}
+
+/* 角色区：窗口底部那一条，高度 = 窗口高 − 顶部留白。
+   为什么不干脆让 .frame 写 height:calc(100% - 17cqw)：
+   父容器定高度、.frame 继续 height:100% 撑满，才能保住那条硬规则
+   「按高度锚定、绝不硬拉伸」—— 四套装扮的显示高度严格等于这里的 100%，
+   换装时不会一大一小。
+   ★ 顶部那块留白（17cqw）是**给气泡的**：窗口因此从 400 加高到 400+17%×404 ≈ 469，
+   而角色显示高度仍是 400（三档等比）。多出来的透明带正好容下气泡，
+   于是气泡从"压在她头发上"变成"悬在她头顶上方"。
+   17 这个数与 main.js 的 TOP_PAD_RATIO 必须是同一个（selftest 会比对两处）。 */
+#petArea {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: calc(100% - 17cqw);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+#petWrap {
+  position: relative;
+  width: 100%; height: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  transform-origin: 50% 100%;  /* 所有形变以脚底为轴，才像站在地上 */
+  cursor: grab;
+  will-change: transform;
+}
+#petWrap.grabbing { cursor: grabbing; }
+
+/* 目光跟随层。单独一层的原因见 index.html 的注释：
+   一个元素的 transform 只能被一个来源写，分成两层才不会互相覆盖。 */
+#lookWrap {
+  position: absolute; inset: 0;
+  transform-origin: 50% 100%;
+  transition: transform .45s cubic-bezier(.2, .8, .3, 1);
+  will-change: transform;
+}
+
+/* 素材统一 560 高。
+   这里用 height:100% + width:auto，**不用** max-width/max-height ——
+   因为 #petArea 的宽度（= 窗口宽 404）已经按最宽的一套素材算好了：max-* 会在窗口偏窄时
+   把宽的装扮压小，于是换装时角色一大一小（这就是上一版实际发生的事）。
+   改为按高度锚定后，四套装扮的显示高度一律等于 **#petArea 的高度**（= 角色显示高度），
+   视觉大小一致。
+   注意"按高度"锚的是 #petArea 而不是窗口：#petArea 比窗口矮 17cqw（那块留白给了气泡）。
+   代价是素材宽度有上限，由 main.js 的 PET_MAX_SPRITE_W + selftest 卡住。 */
+.frame {
+  position: absolute;
+  left: 50%; bottom: 0;
+  transform: translateX(-50%);
+  height: 100%; width: auto;
+  object-fit: contain;
+  object-position: bottom center;
+  -webkit-user-drag: none;
+  opacity: 0;
+  transition: opacity .16s ease;   /* 换装淡入淡出，不再"啪"地跳一下 */
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, .22));
+}
+.frame.on { opacity: 1; }
+
+/* ---------- 害羞腮红 ---------- */
+/* 双击 / 摸头 / 番茄完成时的正向反馈。
+ *
+ * 为什么不是"闭眼 / 笑眼"差分图：
+ *   试过两版都给不出能看的眼睛 ——
+ *   v1 是用矩形 mask 做 inpaint，模型直接吐出灰块/黑条；
+ *   v2/v3 是把眼区抹平再画一根眼睑弧线，结果睫毛、下眼睑、外眼角
+ *   全部消失，只剩一根 1~2px 的细线，看着像"一张没有眼睛的脸"。
+ *   根因是：雪乃的上眼睑是**又粗又黑的睫毛线**，这个画法没法用
+ *   程序合成出来，而扩散模型重绘又会丢角色特征。
+ *   所以不再重绘五官，改用一层叠加的腮红表达情绪 —— 纯 CSS、零素材、
+ *   不可能画坏，也永远不会和原画风格打架。
+ * 位置按 assets/sprites/maid.png 里实测的虹膜 bbox（y 36.8%~48.8%）往下偏外推算，
+ * 再用定格截图（preview.html 的 hold=blush）对着脸颊校过一轮：
+ * 一开始 top 给到 54%/51%，结果两团红晕落到了**下巴两侧**（脸是侧着的，
+ * 露出来的那半边脸比正脸更靠上），而且 17% 宽太扁、像贴了两根横条。
+ * 现在是 11%×6.5% 的椭圆，贴在颧骨上。 */
+#blush { position: absolute; inset: 0; opacity: 0; pointer-events: none; }
+#blush.on { animation: blush 1.7s ease-out; }
+#blush i {
+  position: absolute;
+  width: 11%; height: 6.5%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(235, 100, 126, .95), rgba(235, 100, 126, 0) 74%);
+  filter: blur(2.5px);
+}
+#blush i:first-child { left: 36%; top: 48%; }   /* 左半边脸露出更多，颧骨位置也更高 */
+#blush i:last-child  { left: 52%; top: 47%; }   /* 右侧只露出小半张脸，往脸中间收一点 */
+@keyframes blush {
+  0%   { opacity: 0; }
+  16%  { opacity: 1; }
+  70%  { opacity: .9; }
+  100% { opacity: 0; }
+}
+
+/* ---------- 待机呼吸 ---------- */
+@keyframes breathe {
+  0%, 100% { transform: scale(1, 1) translateY(0); }
+  50%      { transform: scale(1.012, 0.988) translateY(1.5px); }
+}
+#petWrap.breathe { animation: breathe 3.6s ease-in-out infinite; }
+
+/* 睡着：缓慢起伏 + 整体下沉一点 */
+@keyframes sleepb {
+  0%, 100% { transform: scale(1, 1); }
+  50%      { transform: scale(1.02, 0.975); }
+}
+#petWrap.sleep { animation: sleepb 5.2s ease-in-out infinite; }
+
+/* 专注中：轻微前后倾，像在做事 */
+@keyframes focusb {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50%      { transform: translateY(2px) rotate(-0.6deg); }
+}
+#petWrap.focus { animation: focusb 4.4s ease-in-out infinite; }
+
+/* ---------- 动作 ---------- */
+@keyframes bounce {
+  0%   { transform: scale(1, 1) translateY(0); }
+  30%  { transform: scale(1.06, 0.92) translateY(0); }
+  65%  { transform: scale(0.97, 1.05) translateY(-14px); }
+  100% { transform: scale(1, 1) translateY(0); }
+}
+#petWrap.bounce { animation: bounce .55s cubic-bezier(.3, .8, .4, 1); }
+
+@keyframes jump {
+  0%   { transform: translateY(0) scale(1, 1); }
+  18%  { transform: translateY(0) scale(1.08, .9); }
+  48%  { transform: translateY(-34px) scale(.96, 1.06); }
+  78%  { transform: translateY(0) scale(1.08, .92); }
+  100% { transform: translateY(0) scale(1, 1); }
+}
+#petWrap.jump { animation: jump .72s cubic-bezier(.3, .8, .4, 1); }
+
+@keyframes shake {
+  0%, 100% { transform: rotate(0deg); }
+  20% { transform: rotate(-3.5deg); }
+  45% { transform: rotate(3deg); }
+  70% { transform: rotate(-2deg); }
+}
+#petWrap.shake { animation: shake .5s ease-in-out; }
+
+/* 被拎起来：悬空晃 */
+@keyframes dangle {
+  0%, 100% { transform: rotate(-4deg); }
+  50%      { transform: rotate(4deg); }
+}
+#petWrap.dangle { animation: dangle .9s ease-in-out infinite; }
+
+@keyframes nod {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  35%      { transform: translateY(3px) rotate(2deg); }
+  70%      { transform: translateY(1px) rotate(-1deg); }
+}
+#petWrap.nod { animation: nod .9s ease-in-out; }
+
+@keyframes spin {
+  0%   { transform: scale(1, 1); }
+  50%  { transform: scale(.88, 1.06) rotate(-2deg); }
+  100% { transform: scale(1, 1); }
+}
+#petWrap.spin { animation: spin 1s ease-in-out; }
+
+@keyframes walkb {
+  0%, 100% { transform: translateY(0) rotate(-1.5deg); }
+  50%      { transform: translateY(-4px) rotate(1.5deg); }
+}
+#petWrap.walk { animation: walkb .42s ease-in-out infinite; }
+
+/* ---------- 顶部信息条：倒计时徽章 + 对话气泡 ---------- */
+/* 这两个原本各自 `position:absolute; top:6~8px; left:50%` ——
+   后果是**番茄钟跑着的时候她一说台词，徽章和气泡就叠在一起**
+   （两个都锚在窗口正中的同一条线上）。
+   收进一个纵向 flex 容器里让它们自然堆叠：徽章在上、气泡在下，
+   谁出现谁占位，永远不重叠。
+   pointer-events:none —— 它们只是显示，不该抢走"按住拖她"的拖拽。 */
+#topBar {
+  position: absolute;
+  top: 3px; left: 0; right: 0;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 1.0cqw;
+  z-index: 30;
+  pointer-events: none;
+}
+
+/* ---------- 对话气泡 ---------- */
+/* 材质：半透明白 + 背景模糊（磨砂玻璃）。
+   为什么不继续用不透明的白盒子：窗口只有 404x400，而角色是**按高度撑满**的
+   （见 .frame 的说明），头顶上方根本没有空地 —— 气泡必然压在她的头发上。
+   实心白盒看起来就是"贴了张纸在她头上"；磨砂玻璃则让她的头发在字底下
+   化成一团柔和的灰雾，字照样读得清，但不再像贴纸。
+   这条是拿放大 3 倍的对照图挑出来的：不模糊的版本能看见一根根发丝和白蕾丝
+   **横穿文字**，字的对比度忽高忽低，明显更差。
+   万一 backdrop-filter 哪天失效，下面的 @supports 兜底会自动把白底提到 .88。 */
+#bubble {
+  position: relative;            /* ::after 的定位锚点 */
+  max-width: 68%;
+  padding: 1.7cqw 3.0cqw 1.9cqw;
+  font-size: 3.35cqw;            /* 404 宽时 ≈ 13.5px（原 3.1cqw ≈ 12.5px，偏小） */
+  line-height: 1.5;
+  border-radius: 3.4cqw;         /* ≈ 14px */
+  background: rgba(255, 255, 255, .72);
+  -webkit-backdrop-filter: blur(2cqw) saturate(1.3);
+  backdrop-filter: blur(2cqw) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, .72);
+  color: #23222a;
+  box-shadow: 0 1cqw 2.6cqw rgba(30, 40, 70, .14);
+  word-break: break-word;
+}
+/* 小尾巴，指向她 */
+#bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%; bottom: -1.15cqw;
+  margin-left: -1.15cqw;
+  border: 1.15cqw solid transparent;
+  border-top-color: rgba(255, 255, 255, .72);
+  border-bottom: 0;
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  #bubble { background: rgba(255, 255, 255, .88); border-color: rgba(255, 255, 255, .9); }
+  #bubble::after { border-top-color: rgba(255, 255, 255, .88); }
+}
+
+/* ---------- 倒计时徽章 ---------- */
+#badge {
+  display: flex; gap: 1.9cqw; align-items: baseline;
+  padding: 1.2cqw 3cqw;
+  background: rgba(30, 36, 52, .9);
+  color: #eef2ff;
+  border-radius: 999px;
+  font-size: 2.95cqw;            /* 404 宽时 ≈ 12px */
+  white-space: nowrap;
+}
+#badgeName { opacity: .78; max-width: 24cqw; overflow: hidden; text-overflow: ellipsis; }
+#badgeTime { font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: .4px; }
+#badge.break { background: rgba(15, 110, 86, .92); }
+
+/* ---------- 漂浮表情 / 粒子 ---------- */
+#emote {
+  position: absolute;
+  top: 24%; left: 50%;
+  font-size: 28px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 25;
+  animation: emoteUp 1.5s ease-out;
+}
+@keyframes emoteUp {
+  0%   { opacity: 0; transform: translate(-50%, 8px) scale(.6); }
+  25%  { opacity: 1; transform: translate(-50%, -2px) scale(1.15); }
+  100% { opacity: 0; transform: translate(-50%, -34px) scale(1); }
+}
+
+#particles { position: absolute; inset: 0; pointer-events: none; z-index: 26; overflow: hidden; }
+.pt {
+  position: absolute;
+  font-size: 17px;
+  animation: ptUp 1.7s ease-out forwards;
+}
+@keyframes ptUp {
+  0%   { opacity: 0; transform: translate(0, 0) scale(.5) rotate(0deg); }
+  20%  { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--dx, 0), -70px) scale(1.1) rotate(var(--rot, 0deg)); }
+}
+
+/* ---------- 番茄钟面板 ---------- */
+#panel {
+  position: absolute;
+  left: 50%; bottom: 12px;
+  transform: translateX(-50%);
+  width: 252px;
+  padding: 12px;
+  background: rgba(255, 255, 255, .985);
+  border: 1px solid rgba(120, 130, 160, .3);
+  border-radius: 14px;
+  box-shadow: 0 8px 26px rgba(40, 50, 80, .22);
+  z-index: 40;
+  font-size: 12.5px;
+  color: #23222a;
+}
+.phead { font-size: 12px; font-weight: 600; color: #6a6f80; margin-bottom: 9px; letter-spacing: .5px; }
+#pomInput {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid #d9dbe4;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-family: inherit;
+  outline: none;
+  color: #23222a;
+}
+#pomInput:focus { border-color: #7f96c8; }
+.chips { display: flex; gap: 5px; margin: 9px 0; }
+.chip {
+  flex: 1; text-align: center;
+  padding: 5px 0;
+  border: 1px solid #d9dbe4;
+  border-radius: 7px;
+  cursor: pointer;
+  color: #5b6070;
+  font-variant-numeric: tabular-nums;
+}
+.chip:hover { border-color: #a9b4cc; }
+.chip.active { background: #2f3a52; border-color: #2f3a52; color: #fff; }
+.prow { display: flex; gap: 6px; }
+.prow button {
+  flex: 1;
+  padding: 7px 0;
+  border: 1px solid #d9dbe4;
+  background: #fff;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: #3a3f52;
+}
+.prow button:hover { background: #f3f5fa; }
+.prow button.primary { background: #2f3a52; border-color: #2f3a52; color: #fff; }
+.prow button.primary:hover { background: #3b4865; }
+.running { text-align: center; padding: 6px 0 10px; }
+.pname { font-size: 12px; color: #6a6f80; margin-bottom: 4px; }
+.ptime { font-size: 30px; font-weight: 300; letter-spacing: 1px; font-variant-numeric: tabular-nums; color: #23222a; }
