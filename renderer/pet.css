@@ -16,6 +16,16 @@ html, body {
 
 .hidden { display: none !important; }
 
+/* ---------- 冻结开关（她藏起来的时候整页停机）----------
+   勿扰把她藏起来之后，主进程 hide() 并不会让 `document.hidden` 变成 true ——
+   Electron 的 backgroundThrottling: false 文档里写着 "This also affects the
+   Page Visibility API"（本窗口在用这个开关，见 main.js）。实测（v3.7）：
+   藏起来之后 rAF 仍以 ~180 帧/秒在跑、breathe 动画照转，
+   于是"到明天早上 8 点"这一档会整夜朝一个没人看的窗口出帧，白烧 ~2.5% CPU。
+   冻结的理由与闸门都写在 pet.js 的 setFrozen()；这里只负责把它落到动画上。
+   ★ 用 `*` + !important 是刻意的：这是个总闸，漏掉任何一个动画层都是白费。 */
+html.pet-frozen * { animation-play-state: paused !important; }
+
 /* ---------- 舞台 ---------- */
 #stage {
   position: absolute; inset: 0;
@@ -32,18 +42,21 @@ html, body {
 }
 
 /* 角色区：窗口底部那一条，高度 = 窗口高 − 顶部留白。
-   为什么不干脆让 .frame 写 height:calc(100% - 17cqw)：
+   为什么不干脆让 .frame 写 height:calc(100% - 22cqw)：
    父容器定高度、.frame 继续 height:100% 撑满，才能保住那条硬规则
    「按高度锚定、绝不硬拉伸」—— 四套装扮的显示高度严格等于这里的 100%，
    换装时不会一大一小。
-   ★ 顶部那块留白（17cqw）是**给气泡的**：窗口因此从 400 加高到 400+17%×404 ≈ 469，
-   而角色显示高度仍是 400（三档等比）。多出来的透明带正好容下气泡，
+   ★ 顶部那块留白（22cqw）是**给气泡的**：窗口因此从 400 加高到 400+22%×404 ≈ 489，
+   而角色显示高度仍是 400（五档等比）。多出来的透明带正好容下气泡，
    于是气泡从"压在她头发上"变成"悬在她头顶上方"。
-   17 这个数与 main.js 的 TOP_PAD_RATIO 必须是同一个（selftest 会比对两处）。 */
+   22 这个数与 main.js 的 TOP_PAD_RATIO 必须是同一个（selftest 会比对四处）。
+   为什么从 17 提到 22：气泡的字号/内距有**绝对像素的可读性下限**，
+   所以"小档需要的比例"比"大档"大得多 —— 17% 在极小档根本容不下两行台词。
+   详细推导与实测数字见 main.js 的 TOP_PAD_RATIO 注释。 */
 #petArea {
   position: absolute;
   left: 0; right: 0; bottom: 0;
-  height: calc(100% - 17cqw);
+  height: calc(100% - 22cqw);
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -62,22 +75,27 @@ html, body {
 #petWrap.grabbing { cursor: grabbing; }
 
 /* 目光跟随层。单独一层的原因见 index.html 的注释：
-   一个元素的 transform 只能被一个来源写，分成两层才不会互相覆盖。 */
+   一个元素的 transform 只能被一个来源写，分成两层才不会互相覆盖。
+   缓动时间 v3.4 从 .45s 收到 .3s：主进程的光标轮询是 120ms 一次，
+   .45s 的缓动会把连续的几个目标点糊成一条很黏的尾巴，反而显得迟钝。 */
 #lookWrap {
   position: absolute; inset: 0;
   transform-origin: 50% 100%;
-  transition: transform .45s cubic-bezier(.2, .8, .3, 1);
+  transition: transform .3s cubic-bezier(.2, .8, .3, 1);
   will-change: transform;
 }
 
-/* 素材统一 560 高。
+/* 素材高**不统一**（v3.4 重制后是 800 / 800 / 762 / 790，
+   各套的源分辨率不同，见 tools/build_assets.py 的「用满源，不放大」）。
    这里用 height:100% + width:auto，**不用** max-width/max-height ——
    因为 #petArea 的宽度（= 窗口宽 404）已经按最宽的一套素材算好了：max-* 会在窗口偏窄时
    把宽的装扮压小，于是换装时角色一大一小（这就是上一版实际发生的事）。
    改为按高度锚定后，四套装扮的显示高度一律等于 **#petArea 的高度**（= 角色显示高度），
-   视觉大小一致。
-   注意"按高度"锚的是 #petArea 而不是窗口：#petArea 比窗口矮 17cqw（那块留白给了气泡）。
-   代价是素材宽度有上限，由 main.js 的 PET_MAX_SPRITE_W + selftest 卡住。 */
+   视觉大小一致 —— **素材高是多少都不影响这一点**，它只决定像素密度。
+   注意"按高度"锚的是 #petArea 而不是窗口：#petArea 比窗口矮 22cqw（那块留白给了气泡）。
+   代价是素材**宽高比**有上限，由 main.js 的 PET_MAX_ASPECT + selftest 卡住。
+   （v3.4 之前卡的是绝对宽度 PET_MAX_SPRITE_W，那个写法隐含"素材都恰好 560 高"，
+     素材高不统一之后它会误判，已换成比值。） */
 .frame {
   position: absolute;
   left: 50%; bottom: 0;
@@ -91,6 +109,48 @@ html, body {
   filter: drop-shadow(0 6px 10px rgba(0, 0, 0, .22));
 }
 .frame.on { opacity: 1; }
+
+/* 立绘容器（v3.9 加差分图层时引入）。inset:0 让它与 #lookWrap 完全重合，
+   于是 .frame 的 left:50% / bottom:0 相对它定位，和以前相对 #lookWrap 是同一个位置。
+   存在的唯一理由是**让"翻转"只有一处**：走动时写 `scaleX(-1)` 只写在这里，
+   基准图和所有图层一起翻。写在 .frame 上要写三遍，漏一遍就是"人翻了眼睛没翻"。 */
+#spriteWrap { position: absolute; inset: 0; }
+
+/* 差分图层。与 .frame 的三处不同，每一处都有具体后果：
+
+   1. filter: none —— 投影是按"这一层的不透明轮廓"算的，而图层只是脸上的一小块。
+      留着它，眼睛周围就会多出一圈不合物理的黑影。
+   2. pointer-events: none —— 她身上的点击判定必须只有一个来源（#fBase 的自然尺寸），
+      多一个可命中的层就多一处错判，而"她某处点不到"在截图上完全看不出来。
+   3. transition 收到 60ms —— 换装的 160ms 是给"整套衣服淡入淡出"用的。
+      眨眼总共才 120ms，用 160ms 会糊成"眼睛慢慢淡开"，那正是要避免的不自然。 */
+.frame.layer {
+  filter: none;
+  pointer-events: none;
+  transition: opacity .06s linear;
+}
+
+/* 走动时的下装两帧（v3.11）。与 .frame.layer 的两处差别：
+
+   1. `transition: none` —— 步周期只有 260~600ms，两帧在这个频率上硬切；
+      60ms 的淡入淡出会把"迈步"糊成一片重影，反而看不清走了没走。
+   2. opacity 不由 `.on` 开关，而由下面两条动画写 —— 它们**只在走路时存在**
+      （规则挂在 `#petWrap.walk` 下）。不走路时 static 的 opacity:0 生效，
+      所以她站着的时候这两层不会露出来。
+
+   ★ 周期必须是 walkb 的**两倍**：walkb 一个迭代 = 一步，正放/反放两个迭代
+   才是完整的一步一换。两者同源同一个 `--step-ms` —— 分开写死的话，
+   改速度时步态与迈步会错开，而那在画面上表现为"腿和身子各走各的"。 */
+.frame.hem {
+  filter: none;
+  pointer-events: none;
+  transition: none;
+  opacity: 0;
+}
+@keyframes hemA { 0%, 50% { opacity: 1; } 50.001%, 100% { opacity: 0; } }
+@keyframes hemB { 0%, 50% { opacity: 0; } 50.001%, 100% { opacity: 1; } }
+#petWrap.walk #fHemA { animation: hemA calc(var(--step-ms, 420ms) * 2) linear infinite; }
+#petWrap.walk #fHemB { animation: hemB calc(var(--step-ms, 420ms) * 2) linear infinite; }
 
 /* ---------- 害羞腮红 ---------- */
 /* 双击 / 摸头 / 番茄完成时的正向反馈。
@@ -148,6 +208,28 @@ html, body {
 }
 #petWrap.focus { animation: focusb 4.4s ease-in-out infinite; }
 
+/* 坐下（待机**姿态**，不是一次性动作）：整体下沉 + 轻微压扁，
+   呼吸幅度也变小变慢。起来由行为链负责（见 pet.js 的 ACT.sit / endChain）。 */
+@keyframes sitb {
+  0%, 100% { transform: translateY(9px) scale(1.02, .965); }
+  50%      { transform: translateY(10px) scale(1.025, .958); }
+}
+#petWrap.sit { animation: sitb 4.8s ease-in-out infinite; }
+
+/* 刚醒（v3.6）：比 breathe 更沉、更慢，还带一点没坐稳的横摆。
+   它是**姿态**，在"迷糊 -> 打哈欠 -> 回神"三拍里一直挂着，
+   所以必须能被中途插进来的 yawn 顶掉。
+   ⚠ 同一个元素上多条 `animation` 冲突时，CSS 里**后声明的胜出** ——
+   所以「姿态」必须一律排在「动作」之前。这条不是风格问题：
+   排反了的表现是"她坐下以后打哈欠毫无反应"（sitb 盖住了 yawn），
+   而它在截图上看不出来（她确实动了，只是动的是 sitb）。
+   selftest 会断言姿态规则的行号小于动作规则的行号。 */
+@keyframes wakeb {
+  0%, 100% { transform: translateY(6px) rotate(-0.8deg) scale(1.01, .975); }
+  50%      { transform: translateY(8px) rotate(0.5deg) scale(1.015, .97); }
+}
+#petWrap.wake { animation: wakeb 5.6s ease-in-out infinite; }
+
 /* ---------- 动作 ---------- */
 @keyframes bounce {
   0%   { transform: scale(1, 1) translateY(0); }
@@ -195,23 +277,134 @@ html, body {
 }
 #petWrap.spin { animation: spin 1s ease-in-out; }
 
+/* 走路（v3.11）。**一个循环 = 一步**，用 `alternate` 交替播放成"两步一个来回"。
+
+   v3.4~v3.10 只有"上下 4px + ±1.5° 摇摆"、整段 ease-in-out，看着像在**飘**：
+   ease-in-out 让她接近地面时**减速**，而那正好是"脚踩上去"的那一刻 ——
+   一个会减速的下落，读起来就是"被放下来"，不是"落下来"。
+
+   现在补三样东西，都不需要新素材：
+
+     · 落地压扁：触地那一下 scale(1.013, .985)。#petWrap 的 transform-origin
+       是 `50% 100%`（脚底），所以纵向缩放天然是"往下压"。1.3% 就够，
+       再大就变成橡皮人了。
+     · 顿挫：下落段（50%→100%）用 `ease-in` —— **先慢后快**，最后是砸到地上，
+       而不是"匀速滑下去"（ease-in-out 的末段是**减速**，读起来像被放下来）；
+       起跳段（0%→50%）用 `ease-out` —— 先快后慢，蹬地弹起再缓下来。
+       用关键字而不是自写三次贝塞尔：这两个正好互为时间反演，不需要额外调参，
+       而"末段比首段快多少"由 tools/probe_walk.js 采出来断言（实测下落末段是首段的 5.7 倍、上升末段是首段的 0.24 倍）。
+     · 一步一次的左右倾：触地时倾 1.9°、过腿时回正。`alternate` 反向那一遍
+       自动镜像成"向另一侧倾"，于是两步一个来回，而不是原地左右抖。
+
+   ⚠ 缓动函数必须写在关键帧里（`animation-timing-function`），不能在 `animation`
+   简写里给一个 —— 简写里的那个会被每一段共用，两段就变成同一种手感，
+   而这套动作的全部信息就在"上升与下落手感不同"上。
+
+   周期由 --step-ms 决定（渲染层按**当前速度**写进来），默认 420ms。
+   速度写死时它就是死代码 —— 所以 walk() 里同时把速度改成了按距离分档，见那边。 */
 @keyframes walkb {
-  0%, 100% { transform: translateY(0) rotate(-1.5deg); }
-  50%      { transform: translateY(-4px) rotate(1.5deg); }
+  0%   { transform: translateY(1.8px)  scale(1.013, .985) rotate(-1.9deg);
+         animation-timing-function: ease-out; }
+  50%  { transform: translateY(-4.6px) scale(.993, 1.008) rotate(0deg);
+         animation-timing-function: ease-in; }
+  100% { transform: translateY(1.8px)  scale(1.013, .985) rotate(1.9deg); }
 }
-#petWrap.walk { animation: walkb .42s ease-in-out infinite; }
+#petWrap.walk {
+  animation-name: walkb;
+  animation-duration: var(--step-ms, 420ms);
+  animation-timing-function: linear;   /* 占位：真正的缓动在每个关键帧上 */
+  animation-iteration-count: infinite;
+  animation-direction: alternate;      /* 一步正放、一步反放 = 左右各倾一次 */
+}
+
+/* ---------- v3.4 新增动作 ---------- */
+/* 被戳身体：往后缩一下。幅度刻意很小 —— 她是"躲"，不是"被撞飞"。 */
+@keyframes recoil {
+  0%, 100% { transform: translate(0, 0) scale(1, 1); }
+  30%      { transform: translate(4px, -2px) scale(.985, 1.015); }
+  62%      { transform: translate(-2px, 1px) scale(1.006, .994); }
+}
+#petWrap.recoil { animation: recoil .52s ease-out; }
+
+/* 生气 / 别过头：横向扭一下，最后停在没转回来的位置附近。
+   不回到 0 是故意的 —— 收尾就"站正"会显得刚才那下没发生。 */
+@keyframes huff {
+  0%   { transform: rotate(0deg) translateX(0); }
+  22%  { transform: rotate(-3deg) translateX(-5px); }
+  52%  { transform: rotate(-2.6deg) translateX(-3px); }
+  78%  { transform: rotate(-.8deg) translateX(1px); }
+  100% { transform: rotate(-1.2deg) translateX(-1px); }
+}
+#petWrap.huff { animation: huff .7s ease-in-out; }
+
+/* 打字时跟着轻轻起伏。幅度**必须**极小、时长**必须**短：
+   它一秒最多被触发 2.6 次，是"她在旁边点头"，不是"蹦迪"。
+   任何一次调大这个幅度都会立刻变成抽搐。 */
+@keyframes tap {
+  0%, 100% { transform: translateY(0) scale(1, 1); }
+  45%      { transform: translateY(-1.5px) scale(1.004, .996); }
+}
+#petWrap.tap { animation: tap .2s ease-out; }
+
+/* 打哈欠：先微微后仰，再"啊——"一下 */
+@keyframes yawn {
+  0%, 100% { transform: rotate(0deg) scale(1, 1); }
+  35%      { transform: rotate(-1.2deg) scale(.99, 1.03); }
+  70%      { transform: rotate(-1.6deg) scale(.985, 1.045); }
+}
+#petWrap.yawn { animation: yawn 1.4s ease-in-out; }
+
+/* 伸懒腰：纵向拉长一点（和 yawn 的区别是"拉长"而不是"后仰"） */
+@keyframes stretch {
+  0%, 100% { transform: scale(1, 1) translateY(0); }
+  45%      { transform: scale(.975, 1.05) translateY(-3px); }
+}
+#petWrap.stretch { animation: stretch 1.5s ease-in-out; }
+
+/* 左右张望：先左后右。用位移而不是 rotate —— "看"是整层移动，
+   不是整个人转过去（转过去会显得像在跳舞）。 */
+@keyframes lookAround {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  25%      { transform: translate(-6px, 0) rotate(-1.2deg); }
+  60%      { transform: translate(6px, 0) rotate(1.2deg); }
+}
+#petWrap.lookAround { animation: lookAround 1.6s ease-in-out; }
+
+/* sit / wake 的规则**不在这里** —— 它们是姿态，按"姿态必须在动作之前"的规则
+   写在上面 #petWrap.focus 之后。别因为"它俩是 v3.4/v3.6 新加的"就顺手挪回来。 */
+
+/* 投掷翻滚**不用 keyframes**：飞行时长是变的（取决于甩出去多快），
+   固定时长的动画对不上。改成在 JS 的物理循环里逐帧写 inline transform。
+   注意 CSS 动画优先级高于 inline style —— 所以投掷期间必须先清掉
+   #petWrap 上的 pose / anim 类，否则 inline 的旋转会被 breathe 盖掉。 */
 
 /* ---------- 顶部信息条：倒计时徽章 + 对话气泡 ---------- */
-/* 这两个原本各自 `position:absolute; top:6~8px; left:50%` ——
+/* 这两个最初各自 `position:absolute; top:6~8px; left:50%` ——
    后果是**番茄钟跑着的时候她一说台词，徽章和气泡就叠在一起**
    （两个都锚在窗口正中的同一条线上）。
-   收进一个纵向 flex 容器里让它们自然堆叠：徽章在上、气泡在下，
-   谁出现谁占位，永远不重叠。
-   pointer-events:none —— 它们只是显示，不该抢走"按住拖她"的拖拽。 */
+   先收进一个纵向 flex 容器让它们自然堆叠，谁出现谁占位。
+   pointer-events:none —— 它们只是显示，不该抢走"按住拖她"的拖拽。
+
+   ★ v3.6 两处改动，都是为了让留白带（22cqw）真的够用：
+
+   1) **改成横排**（原来竖排：徽章在上、气泡在下）。
+      竖排看着整齐，但它是把两者**高度相加**塞进留白带：
+      极小档里 3 + 徽章 24 + 间距 2 + 气泡 48 = 77px，而留白带只有 51px ——
+      多出来的部分往下顶，正顶在她的额头上。这是 v3.5 就记在"已知限制"里的问题。
+      横排后留白带只需容下**较高的那一个**（气泡），徽章在旁边并列，问题从根上消失。
+      极小档实测 159(气泡) + 2(间距) + 68(徽章) = 229px ≤ 234px，刚好排得下。
+
+   2) **#topBar 就是那条留白带本身**：`top:0; height:22cqw`，内容贴它的**底边**对齐。
+      底边那条线 = 「窗口高 − 22cqw」= 她头顶。于是气泡永远紧贴她头顶，
+      带子再高也只是往上多出余量。
+      ⚠ 别写成 `bottom: calc(22cqw + 2px)` —— 那读作"离窗口**底边** 89px"，
+      而留白带在窗口**顶部**：气泡会被丢到她腰上。（第一版就是这么写的，
+      而且当时的验收判据也把方向搞反了、给这个错位开了绿灯 —— 见 README。） */
 #topBar {
   position: absolute;
-  top: 3px; left: 0; right: 0;
-  display: flex; flex-direction: column; align-items: center;
+  top: 0; left: 0; right: 0;
+  height: 22cqw;
+  display: flex; flex-direction: row; align-items: flex-end; justify-content: center;
   gap: 1.0cqw;
   z-index: 30;
   pointer-events: none;
@@ -229,10 +422,19 @@ html, body {
 #bubble {
   position: relative;            /* ::after 的定位锚点 */
   max-width: 68%;
-  padding: 1.7cqw 3.0cqw 1.9cqw;
-  font-size: 3.35cqw;            /* 404 宽时 ≈ 13.5px（原 3.1cqw ≈ 12.5px，偏小） */
+  /* 横排时钉死不缩 —— 让位的是徽章（理由见 #badge 的注释）。
+     气泡一被压窄就会多折一行、把信息条顶高，最后顶进她额头。 */
+  flex-shrink: 0;
+  /* v3.6：缩放从三档扩到五档之后，这里**必须**给上下限。
+     字号是 3.35cqw（窗口宽度的百分比），原来只有 0.72/1/1.28 三档时
+     它是 9.7~17.3px —— 都还能看；加到 0.58/1.58 之后变成 7.8~21.4px，
+     一头读不了、一头大得离谱。clamp 的中间值保持 3.35cqw 不变，
+     所以 medium 档（13.5px）**一个像素都没变**，只有两端被收住。
+     同一个理由下面还有：padding / 圆角 / 小尾巴 / 徽章 / 表情 / 粒子。 */
+  padding: clamp(5px, 1.7cqw, 9px) clamp(8px, 3.0cqw, 15px) clamp(6px, 1.9cqw, 10px);
+  font-size: clamp(10.5px, 3.35cqw, 15px);   /* 404 宽时 ≈ 13.5px（原 3.1cqw ≈ 12.5px，偏小） */
   line-height: 1.5;
-  border-radius: 3.4cqw;         /* ≈ 14px */
+  border-radius: clamp(10px, 3.4cqw, 16px);  /* ≈ 14px */
   background: rgba(255, 255, 255, .72);
   -webkit-backdrop-filter: blur(2cqw) saturate(1.3);
   backdrop-filter: blur(2cqw) saturate(1.3);
@@ -245,9 +447,9 @@ html, body {
 #bubble::after {
   content: "";
   position: absolute;
-  left: 50%; bottom: -1.15cqw;
-  margin-left: -1.15cqw;
-  border: 1.15cqw solid transparent;
+  left: 50%; bottom: calc(-1 * clamp(3px, 1.15cqw, 6px));
+  margin-left: calc(-1 * clamp(3px, 1.15cqw, 6px));
+  border: clamp(3px, 1.15cqw, 6px) solid transparent;
   border-top-color: rgba(255, 255, 255, .72);
   border-bottom: 0;
 }
@@ -258,23 +460,51 @@ html, body {
 
 /* ---------- 倒计时徽章 ---------- */
 #badge {
-  display: flex; gap: 1.9cqw; align-items: baseline;
-  padding: 1.2cqw 3cqw;
+  /* 横排时的优先级：**徽章先让位，气泡不动**。
+     气泡一旦被压窄就会多折一行、把整条信息条顶高，最后顶进她额头 —— 那是会真伤到人的；
+     徽章是纯状态读数（番茄钟时间在面板/托盘里都还能看），名字被省略号截一点无所谓。
+     所以徽章允许收缩（flex-shrink:1），气泡钉死不缩（见 #bubble 的 flex-shrink:0）。
+     极小档实测两者加起来 230/234px，本来就排得下，这条是给"以后谁来动这些数"兜底的：
+     真挤到了，坏掉的是徽章而不是她的额头。 */
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: inline-flex; gap: clamp(5px, 1.9cqw, 10px); align-items: baseline;
+  padding: clamp(4px, 1.2cqw, 7px) clamp(8px, 3cqw, 15px);
   background: rgba(30, 36, 52, .9);
   color: #eef2ff;
   border-radius: 999px;
-  font-size: 2.95cqw;            /* 404 宽时 ≈ 12px */
+  font-size: clamp(9.5px, 2.95cqw, 13px);   /* 404 宽时 ≈ 12px */
   white-space: nowrap;
 }
 #badgeName { opacity: .78; max-width: 24cqw; overflow: hidden; text-overflow: ellipsis; }
 #badgeTime { font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: .4px; }
-#badge.break { background: rgba(15, 110, 86, .92); }
+/* 极窄的窗口下**只留倒计时数字**，把「专注」两个字收掉。
+   为什么需要：横排时气泡（68cqw）与徽章要并排塞进一个窗宽，
+   极小档实测 159(气泡) + 2(间距) + 68(徽章) = 229px，窗口只有 234px —— 只剩 5px。
+   5px 够用但不够稳：徽章文案一变长、或换一套字宽更大的字体就会开始挤，
+   而挤的后果是 flex 压窄气泡 → 气泡多折一行 → 把整条信息条顶高。
+   收掉名字后余量从 5px 涨到约 27px，气泡也不再被挤得那么偏。
+   ⚠ 用**容器查询**按实际窗宽判断，故意不按档名（`[data-scale=tiny]`）：
+     - 挤不挤取决于窗宽，不取决于它是五档里的第几档；
+     - 档位数值以后若调整，这条规则不会跟着失配（不需要同步任何表）。
+   阈值 280px：极小档（234）命中，小档（291）不命中 —— 与小档实测余量 20px 一致。
+   模式名（专注）在面板与托盘里都还能看到，时间则一直留着 —— 收掉的不是唯一的信息。 */
+@container (max-width: 280px) {
+  #badgeName { display: none; }
+}
+/* 这里原来还有一条 #badge.break（休息态的绿色徽章）。休息模式从来没做过，
+   于是它是一段"看起来在等一个功能"的死代码 —— v3.5 删掉。
+   真要做休息阶段时再加回来，别让样式表里留着没人触发的规则。 */
 
 /* ---------- 漂浮表情 / 粒子 ---------- */
+/* 这两个原来写死 px（28 / 17）。写死的问题在五档缩放下才显出来：
+   窗口从 234 到 638 宽，28px 的 emoji 在最小档占掉窗口的 12%（像贴了个大字），
+   在最大档又小得飘不起来。改成跟着窗口走 + 上下限，只有两端被收住。 */
 #emote {
   position: absolute;
   top: 24%; left: 50%;
-  font-size: 28px;
+  font-size: clamp(19px, 7cqw, 36px);      /* 404 宽时 ≈ 28px，与原值一致 */
   transform: translateX(-50%);
   pointer-events: none;
   z-index: 25;
@@ -289,7 +519,7 @@ html, body {
 #particles { position: absolute; inset: 0; pointer-events: none; z-index: 26; overflow: hidden; }
 .pt {
   position: absolute;
-  font-size: 17px;
+  font-size: clamp(11px, 4.2cqw, 22px);    /* 404 宽时 ≈ 17px，与原值一致 */
   animation: ptUp 1.7s ease-out forwards;
 }
 @keyframes ptUp {
@@ -303,7 +533,11 @@ html, body {
   position: absolute;
   left: 50%; bottom: 12px;
   transform: translateX(-50%);
-  width: 252px;
+  /* 五档缩放：tiny 档窗口只有 234px 宽，写死 252px 会直接溢到窗口外
+     （面板是 absolute，#stage 没设 overflow:hidden，所以它会画到屏幕外面去，
+     表现为"番茄钟打不开"——其实开了，只是在看不见的地方）。
+     上限仍是 252px，所以 medium 及以上**完全没变**。 */
+  width: min(252px, calc(100% - 12px));
   padding: 12px;
   background: rgba(255, 255, 255, .985);
   border: 1px solid rgba(120, 130, 160, .3);
@@ -355,3 +589,35 @@ html, body {
 .running { text-align: center; padding: 6px 0 10px; }
 .pname { font-size: 12px; color: #6a6f80; margin-bottom: 4px; }
 .ptime { font-size: 30px; font-weight: 300; letter-spacing: 1px; font-variant-numeric: tabular-nums; color: #23222a; }
+
+/* ---------- 减弱动效（系统「减少动态效果」开关）----------
+   桌面宠物最刺眼的一点是它**永远在动** —— 呼吸、睡着、专注、坐下全是无限循环
+   动画，而"持续、无法预期、还关不掉"正好是前庭敏感的人最难受的那一类。
+   这个开关一开，把无限循环全部退化成**静态姿态**：
+   她的状态照样看得出来（睡着是沉下去的、专注是略微前倾的、坐下是低一截的），
+   只是不再来回晃。
+   注意这里保留了一次性反馈（点击跳一下、落地弹一下）—— 它们是"我收到你的操作"
+   的唯一回音，去掉之后交互会变成没有反应的；只把时长压短。
+   这不是"少做一个功能"，是把一盏一直闪的灯改成常亮。 */
+@media (prefers-reduced-motion: reduce) {
+  #petWrap.breathe, #petWrap.sleep, #petWrap.focus, #petWrap.wake,
+  #petWrap.dangle, #petWrap.walk, #petWrap.sit { animation: none; }
+  /* 各自钉在动画中段的那一帧上，姿态仍然可辨 */
+  #petWrap.breathe { transform: none; }
+  #petWrap.sleep   { transform: scale(1.02, .975) translateY(4px); }
+  #petWrap.focus   { transform: translateY(2px) rotate(-0.6deg); }
+  #petWrap.wake    { transform: translateY(6px) rotate(-0.8deg) scale(1.01, .975); }
+  #petWrap.dangle  { transform: rotate(2deg); }
+  #petWrap.walk    { transform: translateY(-2px); }
+  #petWrap.sit     { transform: translateY(9px) scale(1.02, .965); }
+  /* 一次性动作压短时长。yawn / stretch 是**缓慢形变**，压短之后就是"轻轻动一下
+     就结束"，正是想要的效果；lookAround 是横向位移，压短会变成"快速横移"，
+     反而比原来更刺眼，所以它不在这条名单里。 */
+  #petWrap.jump, #petWrap.bounce, #petWrap.spin,
+  #petWrap.shake, #petWrap.huff, #petWrap.recoil,
+  #petWrap.yawn, #petWrap.stretch { animation-duration: .3s; }
+  /* 表情本身承载状态（💢 / 💤 / 💗），保留但不飘 —— 静止地出现再消失 */
+  #emote { animation: none; }
+  /* 粒子纯装饰，整组去掉 */
+  .pt { display: none; }
+}

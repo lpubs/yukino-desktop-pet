@@ -162,7 +162,7 @@ EXCLUDE_DIRS = {
 SKIP_EXT = {
     ".png", ".ico", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".onnx",
     ".exe", ".dll", ".zip", ".7z", ".ttf", ".ttc", ".woff", ".woff2",
-    ".mp4", ".pdf", ".xlsx", ".sqlite", ".bin", ".node",
+    ".mp4", ".pdf", ".xlsx", ".sqlite", ".bin", ".node", ".wav",
 }
 MAX_BYTES = 2 * 1024 * 1024
 SMALL_NUMBERS = re.compile(r"^[\d._\-+]+$")
@@ -235,7 +235,13 @@ def iter_index_files(root: Path) -> list[tuple[str, str]] | None:
 
 def iter_files(root: Path):
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS]
+        # ★ 下划线开头的目录一律跳过（`_work` / `_review` / `_layerwork` …）：
+        #   与 `.gitignore` 的 `_*/` 同一约定 —— 它们只属于本机、不进仓库。
+        #   ⚠ `--from-index` 那条路**故意不做**这个跳过：扫索引时查的是
+        #   "将要离开本机的那些字节"，若真有人把下划线目录强 add 进索引，
+        #   那正是该被拦下来的情况（跳过它才是放水）。
+        dirnames[:] = [d for d in dirnames
+                       if d not in EXCLUDE_DIRS and not d.startswith("_")]
         for fn in filenames:
             p = Path(dirpath) / fn
             if p.suffix.lower() in SKIP_EXT:

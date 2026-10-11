@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+      content="default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
 <title>雪乃桌宠</title>
 <link rel="stylesheet" href="pet.css">
 </head>
@@ -12,8 +12,9 @@
 <!-- 角色舞台 -->
 <div id="stage">
 
-  <!-- 窗口顶部：徽章 + 气泡摞在一个纵向 flex 里。
-       分开绝对定位的话，番茄钟跑着的时候她一说台词，两个会叠在同一条线上。
+  <!-- 窗口顶部：徽章 + 气泡**横排**在一条留白带里（#topBar 就是那条带子本身）。
+       分开绝对定位的话，番茄钟跑着的时候她一说台词，两个会叠在同一条线上；
+       竖排则会把徽章的高度加进气泡上方，极小档直接顶进她额头。
        放在 #stage 里（而不是像以前挂在 body 下）：气泡的尺寸全用 cqw 表达，
        而 cqw 需要**容器**做参照 —— 挂在 body 下时它会退化成视口单位，
        真机上恰好数值相同（视口 == 窗口），但那是巧合不是契约；
@@ -39,7 +40,24 @@
            看起来像"转头看你"。单独一层是为了不和 #petWrap 上的呼吸/跳跃
            动画抢同一个 transform（两个动画写同一个属性会互相覆盖）。 -->
       <div id="lookWrap">
-        <img id="fBase" class="frame on" alt="雪之下雪乃" draggable="false">
+        <!-- 立绘与差分图层都装在这一个容器里。
+             为什么需要一个容器：走动时整张立绘要左右翻（scaleX ±1），
+             而"翻"必须同时作用在基准图和所有图层上。拆成兄弟节点就得逐个去写，
+             漏掉哪一层就是"人翻了、眼睛没翻"—— 而它在静止画面上完全看不出来。
+             用容器把这件事从"记得写三遍"变成"结构上只可能写一遍"。 -->
+        <div id="spriteWrap">
+          <img id="fBase" class="frame on" alt="雪之下雪乃" draggable="false">
+          <!-- 走动时的下装两帧（v3.11）。**只在 #petWrap.walk 期间**按步周期硬切，
+               见 pet.css 的 `.frame.hem`。做不了这一层的套装（胸像，看不到下装）
+               src 一直是空的，什么也不会渲染 —— 它们是"可选图层"，
+               与 eye/mouth 同一套降级规则。 -->
+          <img id="fHemA" class="frame hem" alt="" aria-hidden="true" draggable="false">
+          <img id="fHemB" class="frame hem" alt="" aria-hidden="true" draggable="false">
+          <!-- 差分图层：与基准立绘**同像素尺寸、同定位**，叠在上面。
+               平时 opacity:0，眨眼 / 说话 / 表情时才淡入 —— 说明见 pet.css 的 .frame.layer。 -->
+          <img id="fEye" class="frame layer" alt="" aria-hidden="true" draggable="false">
+          <img id="fMouth" class="frame layer" alt="" aria-hidden="true" draggable="false">
+        </div>
         <!-- 害羞腮红：双击 / 摸头 / 番茄完成的正向反馈。
              走纯 CSS，不重绘五官 —— 见 pet.css 里的说明。 -->
         <div id="blush"><i></i><i></i></div>
@@ -84,6 +102,7 @@
   </div>
 </div>
 
+<script src="../throwphysics.js"></script>
 <script src="dialogue.js"></script>
 <script src="pet.js"></script>
 </body>

@@ -37,6 +37,17 @@
     background: rgba(255,255,255,.88); padding: 6px 9px; border-radius: 8px;
     border: 1px solid rgba(120,130,160,.22); white-space: pre;
   }
+  /* 点击穿透的"可交互区"可视化。真机上这一圈之外是穿到桌面去的 ——
+     也就是鼠标点下去会落到下面的窗口/图标上，而不是接在她身上。
+     为什么必须画出来：这一块算错**只表现为"她某处点不到"或"她旁边一片点不下去"**，
+     截图上看不出任何异常（那里本来就是透明的）。看框是唯一能一眼验收的方式。
+     默认隐藏，用 hash `hit=1` 或工具条上的「穿透框」开关。 */
+  #hit-overlay {
+    position: absolute; display: none; z-index: 60;
+    pointer-events: none;
+    border: 1px dashed #d1445e;
+    background: rgba(209, 68, 94, .08);
+  }
 
   /* 把"整个窗口"变成真实视口里的一块。
      #stage 用 position:fixed + translate 充当窗口，于是里面所有 position:absolute 的
@@ -70,6 +81,72 @@
   <button data-demo="stats">看统计</button>
   <button data-demo="dropL">松手贴左边缘</button>
   <button data-demo="offscreen">拖出屏幕试试</button>
+  <button data-demo="levelup">升级演出</button>
+  <button data-demo="bond6">羁绊 Lv.6</button>
+  <button data-demo="sfx">音效</button>
+  <!-- v3.4 新增的五项交互，逐条可单独触发 -->
+  <button data-demo="rHead">部位·头顶</button>
+  <button data-demo="rFace">部位·脸</button>
+  <button data-demo="rBody">部位·身体</button>
+  <button data-demo="rSkirt">部位·裙摆</button>
+  <button data-demo="throw">投掷</button>
+  <button data-demo="type">打字反应</button>
+  <button data-demo="approach">主动靠近</button>
+  <button data-demo="approachForce">靠近（跳过前提）</button>
+  <button data-demo="moodBad">情绪·惹毛</button>
+  <button data-demo="moodGood">情绪·哄好</button>
+  <button data-demo="idleN">待机·哈欠</button>
+  <button data-demo="idleS">待机·坐下</button>
+  <!-- v3.6：生活流行为链 + 醒来三拍 + 久别重逢 -->
+  <button data-demo="chain">生活流·一条链</button>
+  <button data-demo="chainCut">生活流·中途被打断</button>
+  <button data-demo="wakeSlow">醒来（三拍）</button>
+  <button data-demo="wakeRush">醒来（被你戳醒）</button>
+  <button data-demo="away">久别重逢（轮流）</button>
+  <!-- v3.5：把点击穿透的可交互区画出来（虚线框之外的点会穿到桌面） -->
+  <button data-demo="hit">穿透框</button>
+  <!-- v3.9：差分图层（眨眼 / 口型 / 表情）。
+       为什么要逐个槽位一个按钮而不是一个"眨眼"：眨眼只有 120ms，
+       而文档里记过"无头模式下 rAF 几乎不触发、虚拟时间轴和动画对不齐" ——
+       截图抓不到那一帧。所以验收必须落到"把某一档**定住**再看"，
+       一个槽位一个入口，才能逐张读图。 -->
+  <button data-demo="blink">眨眼（一次）</button>
+  <button data-demo="eyeHalf">眼·半睁（定住）</button>
+  <button data-demo="eyeClosed">眼·闭眼（定住）</button>
+  <button data-demo="eyeWink">眼·调皮眨眼（定住）</button>
+  <button data-demo="eyeHappy">眼·笑眼（定住）</button>
+  <button data-demo="eyeNone">眼·放开</button>
+  <button data-demo="mouthOpen">嘴·张开（定住）</button>
+  <button data-demo="mouthSmile">嘴·微笑（定住）</button>
+  <button data-demo="mouthNone">嘴·放开</button>
+  <button data-demo="talk">说话（口型连动）</button>
+  <!-- v3.8：打扰等级 / 健康提醒 / 你在不在 / 冷落 / 盯着看 / 边缘收边 -->
+  <button data-demo="chatterQuiet">打扰·安静</button>
+  <button data-demo="chatterNormal">打扰·适中</button>
+  <button data-demo="chatterLively">打扰·活泼</button>
+  <button data-demo="quietChain">安静档·跑一条链</button>
+  <button data-demo="healthSit">提醒·久坐</button>
+  <button data-demo="healthWater">提醒·喝水</button>
+  <button data-demo="healthEye">提醒·护眼</button>
+  <button data-demo="awayShort">你离开一会儿</button>
+  <button data-demo="awayLong">你离开很久</button>
+  <button data-demo="ignore">连戳（把她惹烦）</button>
+  <button data-demo="stare">盯着她看</button>
+  <button data-demo="edgeL">收边·贴左</button>
+  <button data-demo="edgeR">收边·贴右</button>
+  <!-- v3.12：前台应用（环境感知）。浏览器里没有"当前前台窗口"这回事，
+       所以只能这样喂进去 —— 走的是渲染层**同一个** onScene 回调，不是另写的演示。 -->
+  <button data-demo="sceneCode">场景·写代码</button>
+  <button data-demo="sceneBrowser">场景·浏览器</button>
+  <button data-demo="sceneVideo">场景·视频</button>
+  <button data-demo="sceneChat">场景·聊天</button>
+  <button data-demo="sceneDesktop">场景·回到桌面</button>
+  <!-- v3.12：时间感知 -->
+  <button data-demo="chime">整点报时</button>
+  <button data-demo="lateNight">深夜的问候</button>
+  <button data-demo="dayN">陪你第 7 天</button>
+  <button data-demo="autoQuiet">全屏自动躲（静默）</button>
+  <button data-demo="quietBye">手动勿扰（会说告别）</button>
 </div>
 <div id="state-readout">state: -</div>
 <div class="demo-note">
@@ -92,7 +169,18 @@
   <div id="petArea">
     <div id="petWrap">
       <div id="lookWrap">
-        <img id="fBase" class="frame on" alt="雪之下雪乃" draggable="false">
+        <!-- 与 index.html 同结构。加 #spriteWrap 的理由见 index.html 的注释
+             （走动的翻转必须同时作用在基准图和图层上）。 -->
+        <div id="spriteWrap">
+          <img id="fBase" class="frame on" alt="雪之下雪乃" draggable="false">
+          <!-- 走动时的下装两帧（v3.11）。与 index.html 同结构、同顺序。
+               只在 #petWrap.walk 期间按步周期硬切（见 pet.css 的 .frame.hem）；
+               没有下装层的套装 src 一直是空的，什么也不渲染。 -->
+          <img id="fHemA" class="frame hem" alt="" aria-hidden="true" draggable="false">
+          <img id="fHemB" class="frame hem" alt="" aria-hidden="true" draggable="false">
+          <img id="fEye" class="frame layer" alt="" aria-hidden="true" draggable="false">
+          <img id="fMouth" class="frame layer" alt="" aria-hidden="true" draggable="false">
+        </div>
         <div id="blush"><i></i><i></i></div>
       </div>
     </div>
@@ -129,6 +217,7 @@
 <!-- 位置约束：与 main.js require 的是同一个文件，所以预览里"拖不出屏幕"
      和真机里是同一段逻辑，不是"看起来像" -->
 <script src="../clamp.js"></script>
+<script src="../throwphysics.js"></script>
 <script>
 // 打开调试出口（pet.js 末尾那段用），必须在 pet.js 之前设置
 window.__PET_DEBUG__ = true;
@@ -143,16 +232,23 @@ const WORK_AREA = { x: 0, y: 0, width: window.innerWidth, height: window.innerHe
 const SINK = { maid: 40, sailor: 40, coat: 40, winter: 40 };
 // 与 main.js 的 BASE_W / BASE_H、SIZES 一致。替身必须把缩放也算进去，
 // 否则浏览器里"贴左边缘"和真机会差一截，验收就白做了。
-// BASE_H 是**窗口**高度：角色显示高度（400）+ 顶部留白（17% × 窗宽，给气泡用）。
-// 这个 0.17 与 pet.css 里 #petArea 的「17cqw」必须是同一个数，selftest 会比对。
+// BASE_H 是**窗口**高度：角色显示高度（400）+ 顶部留白（22% × 窗宽，给气泡用）。
+// 这个 0.22 与 pet.css 里 #petArea 的「22cqw」必须是同一个数，selftest 会比对。
+// 为什么是 22 而不是 17：见 main.js 的 TOP_PAD_RATIO 注释（五档里最小档最苛刻）。
 const BASE_W = 404;
-const TOP_PAD_RATIO = 0.17;
-const BASE_H = 400 + Math.round(BASE_W * TOP_PAD_RATIO);   // 400 + 69 = 469
-const SIZES = { small: 0.72, medium: 1, large: 1.28 };
+const TOP_PAD_RATIO = 0.22;
+const BASE_H = 400 + Math.round(BASE_W * TOP_PAD_RATIO);   // 400 + 89 = 489
+// ⚠ 这张表必须与 main.js 的 SIZES 逐项一致（selftest 会比对）——
+// 真机按它改窗口，预览按它改舞台。少一档的话，"五档缩放"这一项的验收就是自欺欺人。
+const SIZES = { tiny: 0.58, small: 0.72, medium: 1, large: 1.28, huge: 1.58 };
 // 素材原始尺寸（宽,高）。真机里主进程直接读 PNG 头拿这个（见 main.js 的 pngSize），
 // 这里硬编码是没办法 —— 浏览器里读不到文件头。**selftest 会断言这张表和
 // 真实 PNG 尺寸一致**，所以它不会悄悄过期。
-const SPRITE = { maid: [544, 560], sailor: [263, 560], coat: [412, 560], winter: [293, 560] };
+// ⚠ v3.4 起四套的高**不再相同**：重制的规则是「用满源、不放大」，
+//   输出高 = min(800, 源可用高)，而四套的源分辨率差得很远
+//   （水手服 1396 / 女仆装 1009 / 冬装 790 / 冬大衣 762）。
+//   所以别再按"都该一样高"去改这里 —— 约束是**宽高比**，不是绝对高。
+const SPRITE = { maid: [778, 800], sailor: [376, 800], coat: [560, 762], winter: [413, 790] };
 let winW = BASE_W, winH = BASE_H;
 // 初始站在右下角，离右边 60px —— 与 main.js 的 createPet 默认位置一致
 const ORIGIN = {
@@ -161,7 +257,7 @@ const ORIGIN = {
 };
 
 // 角色在窗口里实际占多高。量 DOM，而不是把 pet.css 的算式在这里再写一遍 ——
-// 单一事实源在 #petArea 的 height（窗口高 − 17cqw），这里只负责读。
+// 单一事实源在 #petArea 的 height（窗口高 − 22cqw），这里只负责读。
 function petDisplayH() {
   const el = document.getElementById('petWrap');
   const r = el && el.getBoundingClientRect();
@@ -182,7 +278,8 @@ function clampVirtual(x, y) {
   return PetClamp.clampPos(x, y, WORK_AREA, winW, winH, SINK[of] || 0, padXFor(of));
 }
 
-const callbacks = { outfit: [], action: [], scale: [] };
+const callbacks = { outfit: [], action: [], scale: [], quiet: [], sfx: [], cursor: [], typing: [],
+                    chatter: [], activity: [], health: [], scene: [], perch: [] };
 let virtualPos = Object.assign({}, ORIGIN);
 
 function syncStage() {
@@ -207,6 +304,11 @@ window.pet = {
   clearAll: async () => { localStorage.setItem('pom_demo', '[]'); return true; },
 
   getSettings: async () => window.pet._settings,
+  // 久别重逢（v3.6）。真机里这个值是主进程记的"上次她还在的时刻"算出来的；
+  // 预览里没有那东西，所以默认 0（= 第一次见 -> 走普通问候）。
+  // 要验分档，用 __petDemo.awaySay(ms) 直接喂一个值进去。
+  _awayMs: 0,
+  getAway: async () => ({ awayMs: window.pet._awayMs }),
   setSettings: async (s) => {
     Object.assign(window.pet._settings, s);
     if (s.scale) applyVirtualScale(s.scale);
@@ -227,19 +329,148 @@ window.pet = {
     padX: padXFor(window.pet._settings.outfit)
   }),
   setBlock: () => {},
+  // 点击穿透（v3.5）。真机里主进程拿 hitArea 去撞光标、据此决定整窗穿不穿透；
+  // 浏览器里没有穿透这回事，但**必须把这两个调用接下来**：
+  //   一是少了它 pet.js 会直接 TypeError（selftest 的 [11d] 正在盯这条）；
+  //   二是"可交互区算得对不对"只有在这里才验得了 —— 而它算错的方向恰恰是
+  //   "她本身上点不到"，纯看截图永远看不出来（那一带本来就是透明的）。
+  //
+  // ⚠ 这里要把**视口坐标换算成窗口本地坐标**，别直接存。
+  //   pet.js 报的是 getBoundingClientRect() 的结果：真机里视口原点就是窗口原点，
+  //   所以它天然是"窗口本地"；而预览页的 #stage 被 translate 到了 virtualPos，
+  //   于是同一个值在这里是**页面坐标**，两者差了一个 virtualPos（水手服下就是
+  //   x 差 816）——不换算的话，主进程那套 `pt - b.x` 的算法在真机对、在这里全错，
+  //   而虚线框会被画到屏幕外去（实测过一次：框不见了，读数却"看着正常"）。
+  //   主进程的角色就是把屏幕坐标换算成窗口本地，所以这里做同一件事才是忠实的替身。
+  setHitArea: (r) => {
+    window.pet._hitAreaRaw = r;
+    window.pet._hitArea = r ? {
+      l: r.l - virtualPos.x, t: r.t - virtualPos.y,
+      r: r.r - virtualPos.x, b: r.b - virtualPos.y
+    } : null;
+    drawHitOverlay(window.pet._hitArea);
+    return window.pet._hitArea;
+  },
+  markOver: async () => { window.pet._overCount = (window.pet._overCount || 0) + 1; return true; },
+  _hitArea: null,
+  _hitAreaRaw: null,
+  _overCount: 0,
   // #demo 只是给"没有真实记录"时的兜底示例数据，stats.js 里判断
   showStats: () => window.open('stats.html#demo', '_blank'),
   showMenu: () => {},
   heartbeat: async () => true,
 
+  // ---- 羁绊 / 勿扰 / 音效 ----
+  // 预览里没有主进程，也就没有 affinity.json。这里**故意不复制** main.js 的计分表
+  // （复制一份迟早会漂），只回一个"收到了"的快照，用来验**演出接线**对不对；
+  // 真正的分值与冷却在真机上看。要验"解锁台词"，用 __petDemo.setBond(6)。
+  getBond: async () => ({ points: 0, level: 1, levelName: '生疏', nextAt: 30, nextName: '认得' }),
+  addBond: async () => ({
+    points: 0, level: 1, levelName: '生疏', nextAt: 30, nextName: '认得',
+    gain: 1, leveledUp: false
+  }),
+  setQuiet: async (until) => { callbacks.quiet.forEach((cb) => cb(until || 0)); return until || 0; },
+  getAutostart: async () => false,
+  setAutostart: async () => false,
+  // ---- v3.12 前台窗口感知 ----
+  // 浏览器里没有"前台窗口"这回事（拿不到，也不该假装拿得到）。替身只做两件事：
+  //   setPerch      —— 把请求记下来（读数里看得见），**不真挪舞台**：
+  //                    真机挪的是窗口，而浏览器里把 #stage 推出去只会被裁掉，
+  //                    做成"看起来像栖息"的假象，反而是另一种验不了的东西。
+  //   getForeground —— 回一份明确的快照，读数用它显示"当前场景 / 是否在栖息"。
+  // 要验场景反应，用 __petDemo.scene('code') —— 走渲染层同一个 onScene 回调。
+  _perch: false,
+  _scene: 'other',
+  setPerch: async (v) => {
+    window.pet._perch = !!v;
+    callbacks.perch.forEach((cb) => cb(window.pet._perch));
+    return window.pet._perch;
+  },
+  getForeground: async () => ({
+    available: true, fullscreen: false, scene: window.pet._scene,
+    exe: '(preview)', perch: window.pet._perch, quiet: false, manualQuiet: false
+  }),
+
   // 注册式回调：存起来，等 _fire 时调用
   onOutfit: (cb) => { callbacks.outfit.push(cb); },
   onScale: (cb) => { callbacks.scale.push(cb); },
   onAction: (cb) => { callbacks.action.push(cb); },
+  onQuiet: (cb) => { callbacks.quiet.push(cb); },
+  onSfx: (cb) => { callbacks.sfx.push(cb); },
+  // 全局光标 / 键盘反应：真机里由主进程推。预览里没有主进程，
+  // 所以只把回调收下来，由 __petDemo.setCursor / .typing 主动喂 ——
+  // 这样浏览器里能动的是**同一段渲染逻辑**，不是另写一份演示。
+  onCursor: (cb) => { callbacks.cursor.push(cb); },
+  onTyping: (cb) => { callbacks.typing.push(cb); },
+  // v3.8 三组：
+  //   onChatter  —— 打扰等级变了（托盘/右键菜单里改的）
+  //   onActivity —— 你在不在（真机由主进程的系统空闲检测驱动）
+  //   onHealth   —— 健康提醒到点了
+  // 三个都必须在替身里接住：pet.js 在启动时就会注册，少一个直接 TypeError。
+  onChatter: (cb) => { callbacks.chatter.push(cb); },
+  onActivity: (cb) => { callbacks.activity.push(cb); },
+  onHealth: (cb) => { callbacks.health.push(cb); },
+  // v3.12 两组：onScene（前台应用换了）/ onPerch（窗口栖息开关变了）。
+  // 同样必须在替身里接住 —— pet.js 启动时就注册 onScene，少一个直接 TypeError。
+  onScene: (cb) => { callbacks.scene.push(cb); },
+  onPerch: (cb) => { callbacks.perch.push(cb); },
   _fireOutfit: (k) => callbacks.outfit.forEach((cb) => cb(k)),
   _fireScale: (k) => callbacks.scale.forEach((cb) => cb(k)),
-  _fireAction: (a) => callbacks.action.forEach((cb) => cb(a))
+  _fireAction: (a) => callbacks.action.forEach((cb) => cb(a)),
+  _fireCursor: (c) => callbacks.cursor.forEach((cb) => cb(c)),
+  _fireTyping: (t) => callbacks.typing.forEach((cb) => cb(t)),
+  _fireChatter: (k) => callbacks.chatter.forEach((cb) => cb(k)),
+  _fireActivity: (a) => callbacks.activity.forEach((cb) => cb(a)),
+  _fireHealth: (k) => callbacks.health.forEach((cb) => cb(k)),
+  _fireScene: (s) => callbacks.scene.forEach((cb) => cb(s)),
+  _firePerch: (v) => callbacks.perch.forEach((cb) => cb(v)),
+  // 勿扰也补一个"直接喂对象"的入口：__petDemo.autoQuiet() 要用它演
+  // **自动档**（{active:true, bye:false}）—— 与 setQuiet（手动档）形成对照。
+  _fireQuiet: (q) => callbacks.quiet.forEach((cb) => cb(q)),
+
+  // ---- v3.8：你在不在 ----
+  // 真机里这个值来自 powerMonitor.getSystemIdleTime()（系统层面多久没输入）。
+  // 浏览器里没有"系统空闲"这回事，所以默认恒为"你在"；要验"离开/回来"那两条路径，
+  // 用 __petDemo.activity(离开毫秒) 直接喂 —— 走的是渲染层同一个 onActivity 回调。
+  _active: true,
+  getIdle: async () => ({ active: window.pet._active !== false, awayMs: 0 }),
+
+  // ---- v3.8：边缘收边（迷你模式）----
+  // 真机里主进程会按这个值把窗口**推出屏幕外**（推出去的部分不会被合成，
+  // 于是"只露半个身子"直接就有了）。浏览器里做不到这一点 —— #stage 推出去会被裁，
+  // 但页面上看不出"收边"的效果。所以这里只把请求记下来，读数里摆出 `edge` 那一行。
+  // 验的是：**松手贴到屏幕边时，有没有真的发出收边请求**（以及点她一下有没有取消）。
+  _edge: null,
+  setEdge: async (mode) => { window.pet._edge = mode || null; return window.pet._edge; }
 };
+
+// ---- 点击穿透的可交互区可视化 ----
+// 画的是 pet.js **真的报出去的那个框**（window.pet._hitArea），不是另算一遍 ——
+// 另算一遍就变成"验一个等效实现"，那正是这个项目一直在避的。
+// 框画在 #stage 里用窗口本地坐标：#stage 本身就 translate 到了虚拟窗口位置，
+// 所以它的绝对子元素落在页面上的位置 = 窗口本地坐标 + virtualPos = 屏幕坐标，
+// 与真机上"光标撞框"用的坐标系是同一套。
+let showHit = false;
+let overlayEl = null;
+function drawHitOverlay(box) {
+  const st = document.getElementById('stage');
+  if (!st) return;
+  if (!overlayEl) {
+    overlayEl = document.createElement('div');
+    overlayEl.id = 'hit-overlay';
+    st.appendChild(overlayEl);
+  }
+  if (!showHit || !box) { overlayEl.style.display = 'none'; return; }
+  overlayEl.style.display = 'block';
+  overlayEl.style.left = box.l + 'px';
+  overlayEl.style.top = box.t + 'px';
+  overlayEl.style.width = (box.r - box.l) + 'px';
+  overlayEl.style.height = (box.b - box.t) + 'px';
+}
+function setShowHit(v) {
+  showHit = !!v;
+  drawHitOverlay(window.pet._hitArea);
+}
 
 // 真机里是主进程改窗口尺寸后回广播 'scale'。替身照抄这个顺序：
 // 先改"窗口"（舞台尺寸 + 位置重排），再通知渲染层。
@@ -274,6 +505,16 @@ syncStage();
 <script src="pet.js"></script>
 <script>
 // ---- 演示按钮：全部走 pet.js 的真实入口，不自己造 class ----
+// 真机的 nx 是主进程算好的（nx = (光标x − 窗口中心) / (窗宽 × 0.9)）。
+// 预览里没有真实光标，就得把这个式子**反解**回一个屏幕坐标喂进去 ——
+// 否则 cursor.x 恒等于 0，"主动靠近"会一路朝屏幕左上角走，验的就成了错的东西。
+function cursorScreenX(nx) {
+  return Math.round(virtualPos.x + winW / 2 + nx * winW * 0.9);
+}
+
+// 久别重逢按钮的轮换下标（四档轮着走）。-1 起步，第一次点就轮到第一档。
+let awayStep = -1;
+
 function dispatchDemo(k) {
   const demo = window.__petDemo;
   const wrap = document.querySelector('#petWrap');
@@ -296,12 +537,93 @@ function dispatchDemo(k) {
   if (k === 'sleep') demo.sleep();
   if (k === 'walk') demo.walk();
   if (k === 'look') {
-    // 目光跟随：把鼠标"放"到舞台斜下方，看整层有没有偏移
-    const r = wrap.getBoundingClientRect();
-    demo.lookAt({ clientX: r.left + r.width * 0.22, clientY: r.top + r.height * 0.82 });
+    // 目光跟随：喂一个"光标在左下远处"的方位，看整层有没有偏移。
+    // 真机里这个数据是主进程 120ms 轮询推来的，预览里直接调同一个渲染入口。
+    demo.setCursor(-0.9, 0.7, 620, cursorScreenX(-0.9));
+  }
+  // ---- v3.9：差分图层 ----
+  // blink 走真机那一次完整的四拍；其余是"把某一档定住"供截图，
+  // 因为它们各自的正常存活时间只有几十毫秒。
+  if (k === 'blink') demo.blink();
+  if (k === 'eyeHalf') demo.eye('half');
+  if (k === 'eyeClosed') demo.eye('closed');
+  if (k === 'eyeWink') demo.eye('wink');
+  if (k === 'eyeHappy') demo.eye('happy');
+  if (k === 'eyeNone') demo.eye(null);
+  if (k === 'mouthOpen') demo.mouth('open');
+  if (k === 'mouthSmile') demo.mouth('smile');
+  if (k === 'mouthNone') demo.mouth(null);
+  if (k === 'talk') demo.talk(1400);
+  // ---- v3.4 新增交互的验收入口 ----
+  if (k === 'rHead') demo.region('head');
+  if (k === 'rFace') demo.region('face');
+  if (k === 'rBody') demo.region('body');
+  if (k === 'rSkirt') demo.region('skirt');
+  if (k === 'throw') {
+    // 往右上甩。走的是拖拽松手后**同一个** throwIt，不是另写的演示。
+    demo.throwAt(24, -20);
+  }
+  if (k === 'type') {
+    // 连喂几次高频敲击，把 fastStreak 攒到会说"敲得猛"那句（阈值 6）
+    for (let i = 0; i < 7; i++) setTimeout(() => demo.typing(8), i * 90);
+  }
+  if (k === 'approach') {
+    // 主动靠近有 4 个前提（见 idleApproach）。这里把光标摆在远处，
+    // 并等 idleApproach 自己判断 —— 不满足条件时它**什么都不做**，这本身也是要验的。
+    demo.setCursor(-0.9, 0.2, 900, cursorScreenX(-0.9));
+    demo.approach();
+  }
+  if (k === 'approachForce') {
+    // 把两个时间前提拨过去，验"满足条件时真的会朝光标走过去"
+    demo.setCursor(-0.9, 0.2, 900, cursorScreenX(-0.9));
+    demo.forceApproach();
+  }
+  if (k === 'moodBad') {
+    // 连戳裙摆，把情绪推到 angry（-18/次，从中性 50 到 ≤15 需要 2 次）
+    demo.setMood(50);
+    demo.region('skirt');
+    setTimeout(() => demo.region('skirt'), 400);
+  }
+  if (k === 'moodGood') {
+    demo.setMood(56);
+    demo.region('head');
+  }
+  if (k === 'idleN') { demo.anim('yawn', 1400); demo.quote(QUOTES.yawn); demo.emote('💤'); }
+  if (k === 'idleS') demo.anim('stretch', 1500);
+  // ---- v3.6：生活流行为链 ----
+  if (k === 'chain') {
+    // 走的是真机上**同一个** runChain：模式 / 睡着 / 勿扰 / "刚互动过"四道闸门全都生效。
+    // forceChain 只把最后那道时间闸门往回拨 —— 不然在浏览器里刚点完按钮，
+    // lastInteract 就是"刚刚"，这条链永远起不来，验收就只剩"它正确地什么都没做"。
+    // 起不来时把话说出来：静默失败是这类调度最坏的表现形式。
+    const ok = demo.forceChain();
+    if (!ok) demo.quote(['……（链没起来：模式 / 睡着 / 勿扰 有一道没过去）']);
+  }
+  if (k === 'chainCut') {
+    // 演到一半碰她一下，验"打断"这条路径真的接上了。
+    // 不接的表现是：你点完她，两秒后她又自己接着看窗外，像没听见你说话。
+    demo.forceChain();
+    setTimeout(() => demo.interrupt(), 900);
+  }
+  if (k === 'wakeSlow') { demo.sleep(); setTimeout(() => demo.wake(), 400); }
+  if (k === 'wakeRush') {
+    // 睡着 -> 唤醒 -> 在她迷糊的那两秒里又戳一下。
+    // 走的是 click 分支里同一个 finishWake(false)，不是另写一条。
+    demo.sleep();
+    setTimeout(() => demo.wake(), 300);
+    setTimeout(() => demo.finishWake(), 900);
+  }
+  if (k === 'away') {
+    // 四档轮着走。给的毫秒值直接进 awayLine（2h / 8h / 30h / 5d），
+    // 判档逻辑和真机是同一份（pet.js 的 AWAY_MIN / AWAY_HOUR / AWAY_DAY）。
+    // 这里**不** pinBubble：那会把气泡永久钉住，污染后面的验收。
+    const H = 3600000;
+    awayStep = (awayStep + 1) % 4;
+    demo.awaySay([2 * H, 8 * H, 30 * H, 5 * 24 * H][awayStep]);
   }
   if (k === 'scale') {
-    const order = ['small', 'medium', 'large'];
+    // 直接取 SIZES 的键序，别再抄一份 —— v3.6 加档时抄的那份就差点忘了跟。
+    const order = Object.keys(SIZES);
     const cur = order.indexOf(window.pet._settings.scale);
     demo.setScale(order[(cur + 1) % order.length]);
   }
@@ -328,6 +650,110 @@ function dispatchDemo(k) {
     // 就是那条逻辑本身。
     window.pet.moveTo(-99999, 99999);
     demo.quote(['……你打算把我扔到什么地方去？']);
+  }
+  if (k === 'levelup') demo.showLevelUp(3);
+  if (k === 'bond6') {
+    // 把等级直接摆到 Lv.6，然后从**待机池本身**里抽一句 ——
+    // 抽到 Lv.6 那几句就说明"解锁台词并进待机池"这条链是通的。
+    // 抽到哪一句是随机的，验收时看是不是不属于 dialogue.js 的 idle 那批。
+    demo.setBond(6, 700);
+    demo.quote(demo.idleLines());
+    pinBubble();          // 说完就收的短流程，截图验收必须定格
+  }
+  if (k === 'sfx') demo.sfx('levelup');
+  // 点击穿透：画出可交互区。真机上虚线框**之外**是穿到桌面去的。
+  if (k === 'hit') setShowHit(!showHit);
+
+  // ---- v3.8：打扰等级 / 健康提醒 / 你在不在 / 冷落 / 盯着看 / 边缘收边 ----
+  if (k === 'chatterQuiet') { demo.setChatter('quiet'); demo.quote(['……知道了。我安静。']); }
+  if (k === 'chatterNormal') { demo.setChatter('normal'); demo.quote(['……嗯。就照平常那样。']); }
+  if (k === 'chatterLively') { demo.setChatter('lively'); demo.quote(['……今天话多一点。有意见？']); }
+  if (k === 'quietChain') {
+    // 安静档下跑一条链。要验的是**两个同时成立**：
+    //   ① 她照样在动（chain 读数在推进、有动作与表情）
+    //   ② 一句台词都不出（气泡不出现）
+    // 只验其中一条都会漏掉真正的坏法 —— 安静档做成"她彻底不动"是过度，
+    // 做成"照常说话"是没接上闸门。
+    demo.setChatter('quiet');
+    const okQ = demo.forceChain();
+    if (!okQ) demo.quote(['……（链没起来：模式 / 睡着 / 勿扰 有一道没过去）']);
+  }
+  if (k === 'healthSit') { demo.remind('sit'); pinBubble(); }
+  if (k === 'healthWater') { demo.remind('water'); pinBubble(); }
+  if (k === 'healthEye') { demo.remind('eye'); pinBubble(); }
+  if (k === 'awayShort' || k === 'awayLong') {
+    // 完整走一遍"你离开 -> 你回来"。⚠ 只喂"回来"那一下是**不会触发**的 ——
+    // onActivity 判的是状态**变化**（和真机的广播语义一致），不是单看 active 的值。
+    const ms = k === 'awayShort' ? 10 * 60 * 1000 : 50 * 60 * 1000;
+    demo.activity(0, false);
+    setTimeout(() => demo.activity(ms, true), 400);
+  }
+  if (k === 'ignore') {
+    // 连戳 6 次（走 noteHit —— 和真人连点累积的是**同一个**时间窗口）。
+    // 应该看到她别过头、"不理你"，然后接下来几秒里点她**没有反应**。
+    demo.hits(6);
+    pinBubble();
+  }
+  if (k === 'stare') {
+    // 走 stareCheck 定时器会调的那一段。返回 false = 被闸门挡下（不是接线断了）。
+    if (!demo.stare()) demo.quote(['……（现在不行：忙着 / 睡着 / 刚被看过）']);
+    else pinBubble();
+  }
+  if (k === 'edgeL' || k === 'edgeR') {
+    // 走真机松手时**同一个** dropAt（scrub -> snapX -> settle -> 收边请求）。
+    // 从"角色轮廓已经压到屏幕边缘外"的位置松手；右边缘用一个极大的 x 靠夹取兜住。
+    demo.dropAt(k === 'edgeL' ? -400 : 99999).then((r) => {
+      if (r) demo.quote(['收边请求：' + (r.edge || '（没贴边）')]);
+    });
+  }
+
+  // ---- v3.12：前台应用（环境感知）/ 时间感知 / 全屏自动勿扰 ----
+  // 浏览器里没有"前台窗口"这回事，只能把场景**喂**进渲染层同一个 onScene 回调。
+  // 换句话说：这里验的是"接线 + 台词筛选"，验不了"主进程判得对不对" ——
+  // 后者归 wininfo.js 的纯函数用例与真机探针管（两件事必须分开验，
+  // 否则一处在预览页过了就以为主进程也对）。
+  if (k === 'sceneCode' || k === 'sceneBrowser' || k === 'sceneVideo' ||
+      k === 'sceneChat' || k === 'sceneDesktop') {
+    const sc = k.slice(5).toLowerCase();
+    const got = demo.scene(sc);
+    if (sc === 'desktop') {
+      // desktop 这一组是**故意留空**的：回到桌面时她什么都不说。
+      // 所以这里不 pinBubble —— 气泡框弹出来反而是验收看走了眼的样子，
+      // 真正要看的是右下角读数里的 scene= 变成了 desktop。
+      return;
+    }
+    if (got !== sc) demo.quote(['……（场景没接住：期望 ' + sc + '，实到 ' + got + '）']);
+    pinBubble();
+  }
+  if (k === 'chime') {
+    // 直接演一次整点报时（真等整点得等到下一个钟点）。
+    demo.chime();
+    pinBubble();
+  }
+  if (k === 'lateNight') {
+    // 深夜那一组问候，走的是启动问候用的**同一个** QUOTES.daypart。
+    demo.quote(window.QUOTES.daypart.lateNight);
+    pinBubble();
+  }
+  if (k === 'dayN') {
+    // "陪你第 7 天"。里程碑要等好多天，所以直接演。
+    demo.dayN(7);
+    pinBubble();
+  }
+  if (k === 'autoQuiet') {
+    // 自动勿扰（全屏自动躲）：她**静默**消失，不说告别。
+    // 与下面的 quietBye（手动档，会说"我出去了"）并排点一次，
+    // 就能看到两条路唯一可见的差别 —— 也正是 bye 那个字段的全部意义。
+    // ⚠ 先把气泡收干净再喂：截图那一刻开机问候那句往往还挂着，
+    //   不清掉的话这一格看起来"自动档也说话了"，**正好把要验的东西验反**。
+    const bb = document.getElementById('bubble');
+    if (bb) { bb.classList.add('hidden'); bb.style.opacity = '0'; }
+    demo.autoQuiet();
+  }
+  if (k === 'quietBye') {
+    // 手动勿扰：同一件事，但她会说一句告别。说完才冻（冻结被推迟到 QUIET_BYE_MS）。
+    demo.manualQuiet();
+    pinBubble();      // 告别那句是短流程，不定格就抓不到（和 say= 同一个坑）
   }
 }
 
@@ -361,13 +787,48 @@ document.querySelectorAll('.demo-bar button').forEach((b) => {
 //     sc=<scale>             直接切到某档大小（small / medium / large）
 //     hold=blush             把腮红定格在动画中段的浓度（见下）
 //     say=<文字>             让她说这句台词，并**定格**住不自动消失（见下）
+//     lu=<等级>              直接放一次升级演出（气泡同样定格），供截图验收
 //     quiet=1                一直藏住气泡，免得挡住脸
+//     hit=1                  画出点击穿透的可交互区（虚线框**之外**会穿到桌面去）
 //     delay=600              触发时刻（毫秒，虚拟时间）
+
+// 把气泡定格住。截图走 --virtual-time-budget，虚拟时间轴比真实定时器跑得快，
+// 不定格的话抓到的多半是"已经收尾"的那一帧 —— 和 hold=blush 是同一个坑。
+// 凡是"说完就收"的短流程（say= / lu=）都得过这里。
+function pinBubble() {
+  const b = document.getElementById('bubble');
+  if (!b) return;
+  const pin = () => { b.classList.remove('hidden'); b.style.opacity = '1'; };
+  pin();
+  setInterval(pin, 60);
+}
+
 (function autoFromHash() {
   const p = new URLSearchParams(decodeURIComponent(location.hash.replace(/^#/, '')));
   const k = p.get('demo'), o = p.get('o'), sc = p.get('sc'), hold = p.get('hold');
-  const say = p.get('say');
-  if (!k && !o && !sc && !hold && !say && !p.get('seed')) return;
+  const say = p.get('say'), lu = p.get('lu'), away = p.get('away');
+  // 带**任一**参数就往下走。
+  // ⚠ 这里刻意判"有没有参数"，而不是逐项列举 !k && !o && !sc && ...：
+  //   逐项列举的版本已经坑过一次 —— 新加 ro / wait / noblink 时忘了同步进来，
+  //   表现是"参数静默失效"，而它和"样式写错了"在截图上完全分不出来
+  //   （本次是 ro=0 没生效、读数糊在她脸上）。从 p.keys() 推导之后，
+  //   新参数**不可能**再漏进这张名单。
+  if (![...p.keys()].length) return;
+
+  // ro=0 —— 藏掉右上角那块调试读数。验收图里它常常正好压在角色头上，
+  // 而"她脸上有没有多出白块 / 眼睛歪了没有"这件事必须看得见。
+  // ⚠ 只有显式给 ro=0 才藏：多数验收图是**靠这块读数当证据**的
+  //   （例如"腮红的 blush 值是 0 还是满的"），默认藏掉会让那些图失去判据。
+  if (p.get('ro') === '0') {
+    const ro = document.getElementById('state-readout');
+    if (ro) ro.style.display = 'none';
+  }
+
+  // hit=1 —— 把点击穿透的"可交互区"虚线框打开，供截图验收。
+  // 可交互区是**运行时量 DOM** 算出来的（依赖素材解码后的宽高比与角色区高度），
+  // 所以只能等 pet.js 启动、素材 load 之后再打开 —— 这里先记着，
+  // 下面 setTimeout 里再切。直接在这里切会拿到一个还没上报的状态。
+  if (p.get('hit') === '1') setTimeout(() => setShowHit(true), 1400);
 
   // hold=blush —— 把腮红**定格**在动画中段的浓度，供截图验收。
   // 为什么需要定格：截图走 --virtual-time-budget，虚拟时间轴和 CSS 动画的时间轴
@@ -384,23 +845,58 @@ document.querySelectorAll('.demo-bar button').forEach((b) => {
     if (p.get('seed')) seedDemoRecords();
     if (sc && window.__petDemo) window.__petDemo.setScale(sc);
     if (o && window.__petDemo) window.__petDemo.pet(o);
-    if (k) dispatchDemo(k);
+    if (k) {
+      // demoDelay=<毫秒>：把演示往后推一点再触发。
+      // 需要它的场景是"演示依赖前面刚做的换装/缩放" —— 换装走的是 150ms 交叉淡入
+      // （applyOutfit 刻意留的），图片还没换完就投掷的话，spriteW() 读到的还是
+      // 上一套的尺寸，等于在验一个不存在的状态。
+      const dd = parseInt(p.get('demoDelay') || '0', 10);
+      const fire = () => dispatchDemo(k);
+      // wait=layers —— 等差分图层**解码就绪**再派发。
+      // 不加这个的话，delay 到点时图层 PNG 常常还在解码：layerImg() 按
+      // naturalWidth 判空 → 静默退回基准立绘 → 验收图上和"接线断了"一模一样。
+      // 走 pet.js 的 onLayersReady（事件驱动，不吃虚拟时间轴）。
+      if (p.get('wait') === 'layers' && window.__petDemo && window.__petDemo.onLayersReady) {
+        const go = () => window.__petDemo.onLayersReady(fire);
+        if (dd > 0) setTimeout(go, dd); else go();
+      } else if (dd > 0) setTimeout(fire, dd);
+      else fire();
+    }
     // say= 与 demo= 可以同时给（例如「番茄钟跑着时她说话」—— 徽章和气泡同时在），
     // 所以这里**不是** else if。
     if (say && window.__petDemo) {
       window.__petDemo.quote([say]);
-      // 气泡同样要定格：quit/dur 到期就把气泡藏了，而虚拟时间跑得比真实定时器快，
-      // 截图抓到的经常是"已经收尾"的那一帧 —— 和 hold=blush 是同一个坑。
-      const b = document.getElementById('bubble');
-      const pin = () => { b.classList.remove('hidden'); b.style.opacity = '1'; };
-      pin();
-      setInterval(pin, 60);
+      pinBubble();
+    }
+    // lu=<等级>：直接放一次升级演出（台词 + 粒子 + 腮红 + 表情）。
+    // 它的台词也是"说完就收"，所以一样要定格。
+    if (lu && window.__petDemo) {
+      window.__petDemo.showLevelUp(parseInt(lu, 10) || 2);
+      pinBubble();
+    }
+    // away=<毫秒>：直接演一次"久别重逢"的第一句，供截图验收。
+    // 真机上这个值来自主进程记的"上次她在"（只有重启才会变），无头截图里等不到它变，
+    // 所以由参数直接喂进 awayLine —— 分档逻辑本身仍然只有一份，不在这里重写。
+    // 传 0 或没到门槛（< 30 分钟）时它返回 null，那时**不该**定格：
+    // "重启一次电脑不该被判成重逢"正是要验的东西之一。
+    if (away && window.__petDemo) {
+      if (window.__petDemo.awaySay(parseInt(away, 10) || 0)) pinBubble();
     }
   }, parseInt(p.get('delay') || '600', 10));
   // 注意必须判 === '1'：query 值都是字符串，"0" 也是真值
   if (p.get('quiet') === '1') {
     setInterval(() => document.getElementById('bubble').classList.add('hidden'), 60);
   }
+  // noblink=1 —— 关掉自动眨眼。
+  // 和 hold=blush 同一个理由：眨眼间隔是随机的（3~7s），
+  // 一次自动眨眼就能把"基准（睁眼）"那一格拍成半睁 —— 而"基准 vs 半睁"
+  // 的差别正好是差分图层那组对照图要判的东西。
+  if (p.get('noblink') === '1' && window.__petDemo) window.__petDemo.freezeBlink();
+  // pin=1 —— 钉住气泡，让她刚说的那句在截图里留得住。
+  // 和 hold=blush 同一个理由：截图走虚拟时间轴，气泡的 2~3 秒在那条时间轴上
+  // 几乎瞬间就过完了，不定格的话截到的永远是"已经收尾"的空白。
+  // ⚠ 必须比 demo 的 delay 晚生效 —— 所以放在 setTimeout 里面（见上）。
+  if (p.get('pin') === '1') setTimeout(pinBubble, parseInt(p.get('delay') || '600', 10) + 120);
   // badge=1 —— 强制显示倒计时徽章。只为验收"徽章和气泡同时在场时排得对不对"
   // （真机里徽章要等番茄钟跑起来才出现，无头截图里没法先点一遍"开始"）。
   if (p.get('badge') === '1') {
@@ -420,23 +916,106 @@ setInterval(() => {
     'viewport: ' + window.innerWidth + 'x' + window.innerHeight + '\n' +
     'outfit : ' + s.outfit + '\n' +
     'mode   : ' + s.mode + '\n' +
-    'sleep  : ' + s.sleeping + '\n' +
+    'sleep  : ' + s.sleeping + '   waking:' + s.waking + '\n' +
     'scale  : ' + s.scale + ' (' + winW + 'x' + winH + ')\n' +
     'pom    : ' + s.hasPom + '\n' +
+    // 羁绊 / 勿扰 / 音效：这三个是新加的，读数不摆出来的话，
+    // 无头截图完全没法判断"升级演出到底触发了没""勿扰有没有把她冻住"。
+    'bond   : Lv.' + s.bond + '  ' + s.points + 'pt\n' +
+    'quiet  : ' + s.quiet + '\n' +
+    'sfx    : ' + s.sfx + '\n' +
+    // v3.8：打扰等级 / 你在不在 / 是否正在冷落她 / 收边请求。
+    // 这四个不摆出来的话，无头截图判断不了"安静档有没有把台词吞掉"
+    // "她是不是因为你不在才睡的""贴边那一下有没有发出收边请求"。
+    'chatter: ' + s.chatter + '  active:' + s.active +
+      '  ignoring:' + s.ignoring + '  edge:' + (s.edge || '-') + '\n' +
+    // v3.4：情绪值 / 光标距离 / 是否在飞。
+    // 这三项不摆出来的话，"情绪到没到 angry""光标推来了没""投掷结束了没"
+    // 在无头截图里全都只能靠猜。
+    'mood   : ' + s.mood + ' (' + s.moodBand + ')\n' +
+    'cursor : ' + (s.cursorDist > 9000 ? 'n/a' : s.cursorDist) + 'px\n' +
+    'throw  : ' + s.throwing + '\n' +
+    // 最后触发的动作名 + 距今多久。
+    // 为什么要这个：无头截图**抓不准动画帧**（虚拟时间轴 vs CSS 动画，项目文档里有记录），
+    // 所以"摸头时到底跑没跑 nod""裙摆有没有 huff"只能靠读数证明 —— 看像素会白忙一场。
+    'anim   : ' + (s.anim || '-') + (s.animAge >= 0 ? '  (' + s.animAge + 'ms ago)' : '') + '\n' +
+    // ---- v3.6：生活流行为链 ----
+    // chain: 她此刻那条链走到第几拍。格式 `节点#拍数`，末尾带 × 表示那一拍**没做成**
+    //        （前提不满足，典型是"她已经坐着了"还抽到 sit）—— 这个 × 是判断
+    //        "链的门槛逻辑有没有生效"的唯一证据。
+    // run  : 链是不是正在跑。一碰她/一打字就该变成 false（打断那条路径）。
+    // b    : 链剩下的预算。它归零 = 收链，是"不会卡在同一个动作上"的结构性保证。
+    'chain  : ' + s.chain + '  run=' + s.chainRun +
+      '  b=' + s.chainBudget + 'ms  步=' + s.chainSteps + '\n' +
+    // ---- v3.12：前台应用 / 时间感知 ----
+    // scene 是渲染层**此刻持有的**那个场景 —— 也就是"主进程推来的 scene 有没有被
+    //   接住"（onScene 接线）。浏览器里没有真前台窗口，所以它只能靠按钮喂。
+    // perch 同理：替身只记请求、不真挪舞台（理由见替身里的说明）。
+    // time 是"此刻该用哪一组问候"（纯函数，可直接断言）+ 当前小时 + 上次报时的整点
+    //   （-1 = 还没报过；真时钟等不到整点，这个数就是"调度真的跑过"的旁证）。
+    'scene  : ' + s.scene + '  perch=' + !!window.pet._perch + '\n' +
+    'time   : ' + s.daypart + '  ' + s.hour + 'h  chime=' +
+      (s.chimeHour < 0 ? '-' : s.chimeHour + 'h') + '\n' +
+    // 走动这一趟的起终目标。位移本身是无头模式下验不了的（rAF 不推进），
+    // 但"目标算得对不对"能验 —— 而目标算错才是真会出问题的那种
+    // （朝光标走却写死走向 x=0 之类）。积分由 selftest 第 12 节保证。
+    'walk   : ' + s.walkGoal + (s.walkDir ? '  dir=' + (s.walkDir < 0 ? '←' : '→') : '') + '\n' +
+    // 投掷的**边界计划**。飞行本身在无头模式下跑不完（rAF 不推进），
+    // 但"左右极限有没有把角色透明边算进去"能验 —— 而这条换成窗口矩形的话
+    // 画面上几乎看不出（只是提前 100 来像素弹回来）。收敛性见 selftest 第 12 节。
+    'throwp : ' + s.throwPlan + '\n' +
+    // 目光跟随的实际 transform。
+    // 这里必须读 **inline style**，不能读 getComputedStyle：#lookWrap 上有 .3s 缓动，
+    // 而无头模式用的是虚拟时间轴 —— 缓动永远停在起始帧，计算样式会一直返回
+    // matrix(1,0,0,1,0,0)（恒等矩阵），看上去像"跟随压根没生效"。
+    // inline style 是**目标值**，写入即生效，是唯一能在冻结时间轴下确定它真的跑了的读数。
+    'look   : ' + (document.getElementById('lookWrap').style.transform || '(none)') + '\n' +
+    // ---- v3.9：差分图层 ----
+    // eye/mouth 是"期望槽位"（eyeForced 优先），on 是**图层元素是否真的挂着 .on**。
+    // 两个都要看：只有 eye 而 on=false，说明 src 还没解码完（图不在/太慢），
+    // 而这一种在截图上和"她刚好睁着眼"完全一样 —— 分不清就白验了。
+    // slots 是当前套装声明的槽位，用来把"这套没做差分"和"接线断了"分开。
+    // spriteWrap 的 transform 也在这一行里顺带看一眼：走动翻转写在容器上，
+    // 写在 #fBase 上的话图层不会跟着翻，而静止画面上看不出任何区别。
+    'eye    : ' + (s.eye || '(open)') + (s.eyeForced ? ' [forced]' : '') +
+      '  on=' + s.eyeOn + '  slots=' + JSON.stringify(s.eyeSlots) + '\n' +
+    'mouth  : ' + (s.mouth || '(closed)') + '  on=' + s.mouthOn +
+      '  slots=' + JSON.stringify(s.mouthSlots) + '\n' +
+    'flip   : ' + (document.getElementById('spriteWrap').style.transform || '(none)') + '\n' +
     'pos    : ' + Math.round(virtualPos.x) + ',' + Math.round(virtualPos.y) + '\n' +
     'padX   : ' + padXFor(s.outfit) + '\n' +
+    // ---- v3.5：点击穿透 ----
+    // hit : 上报给主进程的**可交互框**（窗口本地 px）。真机里框外一律穿透 ——
+    //       也就是"点下去会落到下面的桌面图标上"。框应当贴着角色轮廓，
+    //       而不是整个窗口（整窗就说明又退回"她周围一片空气点不下去"了）。
+    //       判据看百分比：水手服显示宽只有 188px，所以框应该是窗口宽的 ~51%，
+    //       不再是 100%；同时框的左边界应当接近 padX 那一行（= 两侧透明边的宽）。
+    // over: 渲染层主动喊过几声"光标压在我身上"。它是把进入角色的延迟从
+    //       120ms 压到一帧的那条快路径，恒为 0 就说明 forward 的 mousemove 没到。
+    (function () {
+      const h = window.__petDemo.hitInfo();
+      const b = h.box;
+      // 预览页的 #stage 被 translate 过，所以这里报出来的是**页面坐标**，
+      // 减掉 virtualPos 才是"窗口本地" —— 也就是真机上主进程拿到的那个坐标系。
+      // 不减的话读数会带一个 800 多的偏移，看着"像是框跑到屏幕外了"。
+      const lx = -Math.round(virtualPos.x), ly = -Math.round(virtualPos.y);
+      return 'hit    : ' + (b
+        ? [b.l + lx, b.t + ly, b.r - b.l, b.b - b.t].map(Math.round).join(',') +
+          '  ' + (Math.round(1000 * (b.r - b.l) / winW) / 10) + '% of win'
+        : '(null = 整窗穿透)') + '\n' +
+        'sprite : ' + h.sprite + '  (角色显示尺寸)\n' +
+        'over   : ' + h.over + '\n';
+    })() +
     // 腮红是只有 1.7s 的短动画，无头截图很容易拍到它已经收尾的那一帧。
     // 把实时 opacity 摆出来，才能区分"没触发"和"拍晚了"。
     'blush  : ' + getComputedStyle(document.getElementById('blush')).opacity + '\n' +
     // 气泡：摆出**排版后的实际尺寸**和字号。气泡尺寸走的是 cqw（跟着窗口等比），
     // 而"到底有没有跟着窗口走"从截图上是量不准的 —— 试过按亮度找气泡，
     // 结果被浅色假桌面骗了。直接读浏览器的排版结果才是确定的。
-    // 判据：bubble 宽 / 窗口宽 在 small / medium / large 三档之间应当基本一致。
+    // 判据见 tools/measure_bubble.py：坐标一律相对"窗口"（#stage）上沿。
     (function () {
       const b = document.getElementById('bubble');
       const r = b.getBoundingClientRect();
-      // 相对"窗口"（#stage）上沿的位置 —— 窗口顶是裁切边界，气泡顶一旦越过它
-      // 就会被切掉，所以"往上调多少"必须量出来而不是估。
       const st = document.getElementById('stage').getBoundingClientRect();
       const fs = parseFloat(getComputedStyle(b).fontSize);
       return 'bubble : ' + Math.round(r.width) + 'x' + Math.round(r.height) +
@@ -444,6 +1023,31 @@ setInterval(() => {
              (Math.round(1000 * r.width / winW) / 10) + '% of win' +
              '  top ' + Math.round(r.top - st.top) + 'px' +
              '  bot ' + Math.round(r.bottom - st.top) + 'px';
+    })() + '\n' +
+    // 顶部信息条：量**内容**（徽章 + 气泡两个子项的并集外框），别量 #topBar 自己 ——
+    // v3.6 起 #topBar 就是那条留白带本身（top:0; height:22cqw），
+    // 所以它自己的矩形恒等于"0 .. 带高"，拿它去比"在不在带子里"永远成立，是空转的。
+    // （这条检查前后写空转过两次：先是量满宽容器的宽度、再是量带子自身的上下界。）
+    // 另外单独摆出**徽章自己的尺寸** —— 横排之后徽章比气泡矮，它不再影响总高，
+    // 于是"徽章到底显示了没有"从总高上看不出来，不给出来这条测试就是空转的。
+    (function () {
+      const st = document.getElementById('stage').getBoundingClientRect();
+      const bd = document.getElementById('badge');
+      const rb = bd.getBoundingClientRect();
+      let L = Infinity, R = -Infinity, T = Infinity, B = -Infinity;
+      for (const el of [bd, document.getElementById('bubble')]) {
+        const q = el.getBoundingClientRect();
+        if (q.width <= 0) continue;
+        L = Math.min(L, q.left - st.left);
+        R = Math.max(R, q.right - st.left);
+        T = Math.min(T, q.top - st.top);
+        B = Math.max(B, q.bottom - st.top);
+      }
+      const nan = L === Infinity;
+      return 'topBar : band ' + Math.round(TOP_PAD_RATIO * winW) + 'px' +
+             '  badge ' + Math.round(rb.width) + 'x' + Math.round(rb.height) +
+             '  kids ' + (nan ? '-' : Math.round(L)) + '..' + (nan ? '-' : Math.round(R)) +
+             '  v ' + (nan ? '-' : Math.round(T)) + '..' + (nan ? '-' : Math.round(B));
     })();
 }, 250);
 </script>

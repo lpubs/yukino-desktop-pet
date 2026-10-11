@@ -1,11 +1,13 @@
 {
   "name": "yukino-pet",
-  "version": "3.2.3",
-  "description": "雪之下雪乃桌面宠物 · Electron 透明置顶 · 纯 Python 抠图四套装扮 · 三档缩放 · 摸头/番茄钟",
+  "version": "3.12.0",
+  "description": "雪之下雪乃桌面宠物 · Electron 透明置顶 · 纯 Python 抠图四套装扮 · 五档缩放（滚轮双通道）· 点穿透明区不挡桌面/部位识别/投掷物理/全屏目光跟随/打字反应 · 生活流行为链/睡醒过渡/久别重逢 · 摸头/番茄钟 · 羁绊养成/情绪值/勿扰 · CC0 音效 · v3.8 加打扰等级（安静/适中/活泼）、边缘收边（迷你模式）、健康提醒（久坐/喝水/护眼，抬头说一句就走）与情绪小补丁（冷落/盯着看/你不在时她在做什么），并把睡着判据从「你多久没点我」换成系统空闲 · v3.9~v3.11 加状态帧（眨眼四档/口型两档，四套装扮全部铺满；掩膜内重绘 + 框外逐位不变）与走动（步态曲线 + 裙摆两帧，步频跟着速度走）· v3.12 加前台窗口感知（koffi 调 user32，只读进程名与窗口矩形，不读标题）：全屏自动勿扰（静默躲起来）、窗口栖息（坐到前台窗口标题栏上跟着走）、环境感知（写代码/浏览器/看视频/聊天各有一套台词）与时间感知（整点报时/深夜打哈欠/陪你第 N 天/时段问候）",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "selftest": "node tools/selftest.js",
+    "negtest": "node tools/negtest.js",
+    "check": "node tools/selftest.js && node tools/negtest.js",
     "build:win": "electron-builder --win --x64",
     "build:dir": "electron-builder --win --x64 --dir"
   },
@@ -18,6 +20,10 @@
     "transparent-window",
     "pomodoro"
   ],
+  "optionalDependencies": {
+    "koffi": "^3.3.2",
+    "uiohook-napi": "^1.5.5"
+  },
   "devDependencies": {
     "electron": "^33.4.11",
     "electron-builder": "^25.1.8"
@@ -25,10 +31,34 @@
   "build": {
     "appId": "com.yukino.desktop-pet",
     "productName": "雪乃桌宠",
-    "directories": { "output": "dist" },
-    "files": ["main.js", "preload.js", "clamp.js", "renderer/**/*", "assets/**/*"],
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "clamp.js",
+      "wininfo.js",
+      "renderer/**/*",
+      "assets/**/*",
+      "node_modules/uiohook-napi/**/*",
+      "node_modules/koffi/**/*",
+      "node_modules/@koromix/**/*"
+    ],
+    "asarUnpack": [
+      "**/node_modules/uiohook-napi/**",
+      "**/node_modules/koffi/**",
+      "**/node_modules/@koromix/**"
+    ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "build/icon.ico"
     },
     "nsis": {

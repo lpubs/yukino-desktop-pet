@@ -1,0 +1,246 @@
+{
+  "outfit": "sailor",
+  "size": [
+    376,
+    800
+  ],
+  "mode": "region-frame",
+  "tag": "facebox",
+  "thr": 14,
+  "layers": {
+    "eye_closed": {
+      "file": "eye_closed.png",
+      "w": 376,
+      "h": 800,
+      "kind": "eye",
+      "region": "face",
+      "mask_box": [
+        62,
+        132,
+        368,
+        386
+      ],
+      "mask_feather": 9.0,
+      "box": [
+        62,
+        132,
+        367,
+        386
+      ],
+      "changed": 17288,
+      "max_diff": 255,
+      "tone_off": 1.77,
+      "inside_tone": -4.35,
+      "ring_tone": -1.44,
+      "inbox_shift": [
+        0,
+        -1
+      ],
+      "inbox_improve": 0.059,
+      "outside_max_diff": 0,
+      "alpha_outside_max": 0,
+      "thr": 14,
+      "roi": [
+        26,
+        96,
+        376,
+        422
+      ]
+    },
+    "eye_half": {
+      "file": "eye_half.png",
+      "w": 376,
+      "h": 800,
+      "kind": "eye",
+      "region": "face",
+      "mask_box": [
+        62,
+        132,
+        368,
+        386
+      ],
+      "mask_feather": 9.0,
+      "box": [
+        62,
+        132,
+        367,
+        386
+      ],
+      "changed": 17895,
+      "max_diff": 255,
+      "tone_off": 1.77,
+      "inside_tone": -4.51,
+      "ring_tone": -1.29,
+      "inbox_shift": [
+        0,
+        0
+      ],
+      "inbox_improve": 0.0,
+      "outside_max_diff": 0,
+      "alpha_outside_max": 0,
+      "thr": 14,
+      "roi": [
+        26,
+        96,
+        376,
+        422
+      ]
+    },
+    "eye_happy": {
+      "file": "eye_happy.png",
+      "w": 376,
+      "h": 800,
+      "kind": "eye",
+      "region": "face",
+      "mask_box": [
+        62,
+        132,
+        368,
+        386
+      ],
+      "mask_feather": 9.0,
+      "box": [
+        62,
+        132,
+        367,
+        386
+      ],
+      "changed": 16712,
+      "max_diff": 255,
+      "tone_off": 1.77,
+      "inside_tone": -4.08,
+      "ring_tone": -1.36,
+      "inbox_shift": [
+        0,
+        -1
+      ],
+      "inbox_improve": 0.059,
+      "outside_max_diff": 0,
+      "alpha_outside_max": 0,
+      "thr": 14,
+      "roi": [
+        26,
+        96,
+        376,
+        422
+      ]
+    },
+    "eye_wink": {
+      "file": "eye_wink.png",
+      "w": 376,
+      "h": 800,
+      "kind": "eye",
+      "region": "face",
+      "mask_box": [
+        62,
+        132,
+        368,
+        386
+      ],
+      "mask_feather": 9.0,
+      "box": [
+        62,
+        132,
+        367,
+        386
+      ],
+      "changed": 16982,
+      "max_diff": 255,
+      "tone_off": 1.77,
+      "inside_tone": -4.25,
+      "ring_tone": -1.38,
+      "inbox_shift": [
+        0,
+        0
+      ],
+      "inbox_improve": 0.0,
+      "outside_max_diff": 0,
+      "alpha_outside_max": 0,
+      "thr": 14,
+      "roi": [
+        26,
+        96,
+        376,
+        422
+      ]
+    },
+    "mouth_open": {
+      "file": "mouth_open.png",
+      "w": 376,
+      "h": 800,
+      "kind": "mouth",
+      "region": "mouthbox",
+      "mask_box": [
+        171,
+        279,
+        249,
+        344
+      ],
+      "mask_feather": 7.0,
+      "box": [
+        171,
+        293,
+        249,
+        344
+      ],
+      "changed": 738,
+      "max_diff": 254,
+      "tone_off": 1.98,
+      "inside_tone": -0.33,
+      "ring_tone": -0.27,
+      "inbox_shift": [
+        3,
+        2
+      ],
+      "inbox_improve": 0.508,
+      "outside_max_diff": 0,
+      "alpha_outside_max": 0,
+      "thr": 14,
+      "roi": [
+        143,
+        251,
+        277,
+        372
+      ]
+    },
+    "mouth_smile": {
+      "file": "mouth_smile.png",
+      "w": 376,
+      "h": 800,
+      "kind": "mouth",
+      "region": "mouthbox",
+      "mask_box": [
+        171,
+        279,
+        249,
+        344
+      ],
+      "mask_feather": 7.0,
+      "box": [
+        171,
+        295,
+        249,
+        344
+      ],
+      "changed": 395,
+      "max_diff": 210,
+      "tone_off": 1.98,
+      "inside_tone": -0.38,
+      "ring_tone": -0.07,
+      "inbox_shift": [
+        3,
+        2
+      ],
+      "inbox_improve": 0.905,
+      "outside_max_diff": 0,
+      "alpha_outside_max": 0,
+      "thr": 14,
+      "roi": [
+        143,
+        251,
+        277,
+        372
+      ]
+    }
+  }
+}

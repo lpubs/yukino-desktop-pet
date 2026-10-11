@@ -41,6 +41,16 @@ build/icon.ico              安装包图标（由 maid.png 缩放生成）
 **处理方式不改变权属** —— 角色形象的一切知识产权仍归第一节所列的原始权利人所有，
 本项目只是把它们显示在这个桌宠程序里。
 
+> **注意区分**：`assets/sfx/` 下的 13 个提示音**不属于**上述范围。
+> 它们取自 **Kenney**（kenney.nl）的 Interface Sounds / Impact Sounds 素材包，
+> 该素材包以 **CC0 1.0（公共领域）** 释出 —— **可商用、不要求署名**。
+> 本项目只是做了归一化（44100Hz / 单声道 / 峰值 −15dBFS / 淡入淡出），
+> 未改变其授权状态。出处记在 `assets/sfx/CREDITS.md`，
+> 机器可读的来源与授权清单在 `assets/sfx/sources.json`。
+>
+> （v3.3 及更早的版本里这六个音是 `tools/make_sfx.py` 用 Python 标准库程序合成的；
+> 那条路线因为听感不过关已废弃，脚本留档在 `tools/abandoned/`。）
+
 > **本项目对上述角色形象不主张任何权利，也未获得任何授权、许可或认可。**
 
 因此，使用本项目时必须遵守第三节的用途限制，其中有两条与素材直接相关：
@@ -49,7 +59,7 @@ build/icon.ico              安装包图标（由 maid.png 缩放生成）
 - **不要把素材单独抽取出来再分发**到别的仓库、素材站、网盘或应用市场 ——
   别人需要的话，请让对方来本仓库获取。
 
-若你是权利人并认为这里的素材不当，请按第七节联系 ——
+若你是权利人并认为这里的素材不当，请按第八节联系 ——
 **我会立即移除相关素材或停止分发，无需任何法律程序。**
 
 ---
@@ -92,7 +102,55 @@ Electron 及其所有依赖（完整列表见 `package.json` / `package-lock.jso
 
 ---
 
-## 六、免责与责任限制
+## 六、隐私说明
+
+v3.4 起，程序读取两样与「你正在做什么」有关的东西；v3.8 又加了第三样。
+三样都**只在内存里存在、不落盘、不联网、不发送到任何地方**，但值得单独说清楚。
+
+**1. 全局光标位置（始终开启）**
+
+主进程每 120ms 调用一次 Electron 的 `screen.getCursorScreenPoint()`，
+把光标的**屏幕坐标**推给渲染层，用途只有一个：让她转头看你的鼠标。
+坐标不进日志、不存文件；光标没移动时不推送。
+
+**2. 键盘敲击**次数（**默认关闭，需在右键菜单里显式打开**）
+
+开启后，程序挂一个全局键盘钩子（npm 包 `uiohook-napi`，基于 libuiohook），
+用来判断"你现在打字快不快"。隐私边界不是口头承诺，而是写死在实现里：
+
+- 只监听 `'keydown'` **这个事件本身**；事件对象里的 `keycode` 等字段**连读都不读**；
+- **不记录你按了哪个键**、不把按键组合成文字、不做任何形式的键记录；
+- 数据只活在一个 **1 秒的滑动窗口**里（用来算这一秒敲了多少下），随后被丢弃；
+- 不落盘、不发送到任何地方；关闭开关时钩子会立即停止并注销。
+
+你可以在源码里自行核对：`main.js` 的「键盘反应」一节中，整个文件没有出现
+`keycode` / `rawcode` / `key` 这些字段名。不需要这个功能的话保持关闭即可，
+其余全部功能不受影响。
+
+> ⚠ 另外提醒一句：全局键盘钩子正是键盘记录器所用的那类系统 API，
+> 因此**杀毒软件可能会报警或拦截**。这是该 API 的固有性质，不是本项目的特例 ——
+> 若你自行打包发布，请在说明里告知使用者。
+
+**3. 系统空闲时长（v3.8 起，始终开启）**
+
+主进程每 5 秒调用一次 Electron 的 `powerMonitor.getSystemIdleTime()`，
+它返回的是一个**秒数**：系统层面（键盘 + 鼠标，不论焦点在哪个窗口）已经多久没有输入。
+用途两个，都是"你在不在"：
+
+- 你离开一段时间后她会睡着、"你不在的时候我做了什么"那句话、健康提醒在你离开时暂停计时。
+
+隐私边界同样是写死的：它**只返回一个时长**，没有按键内容、没有按键身份、
+没有窗口标题、没有应用名 —— 这不是"我们不读"，而是这个 API 本身就不提供。
+时长只在内存里参与一次比较（`> 120 秒`），随即被丢弃；不落盘、不发送。
+
+> **另注**：你的设置（装扮 / 大小 / 位置 / 勿扰、打扰等级 / 健康提醒开关 /
+> 音效与打字反应开关 / 羁绊分与统计）都存在**本机**的 `settings.json` 里（Electron 的
+> `userData` 目录），程序不联网、不上传、没有账号体系 —— 想看它到底写了什么，
+> 打开那个文件即可。
+
+---
+
+## 七、免责与责任限制
 
 本项目按**「现状」（as-is）**提供，不提供任何形式的明示或暗示担保，
 包括但不限于对适销性、特定用途适用性及非侵权性的担保。
@@ -110,7 +168,7 @@ Electron 及其所有依赖（完整列表见 `package.json` / `package-lock.jso
 
 ---
 
-## 七、权利方通知（Notice to Rights Holders）
+## 八、权利方通知（Notice to Rights Holders）
 
 本项目**无意侵犯任何人的合法权益**。
 
@@ -144,6 +202,14 @@ display the character. Use is limited to personal, non-commercial purposes:
 artwork elsewhere.** Upon valid notice from a rights holder, the artwork will be
 removed or distribution stopped.
 
+> **Note the distinction:** the 13 sound effects under `assets/sfx/` are **not**
+> part of the above. They come from **Kenney**'s Interface Sounds / Impact Sounds
+> packs, released under **CC0 1.0 (public domain)** — free for commercial use,
+> no attribution required. This project only normalises them (44100 Hz / mono /
+> −15 dBFS peak / fade in-out), which does not change their licence status.
+> Provenance is recorded in `assets/sfx/CREDITS.md` and, machine-readably, in
+> `assets/sfx/sources.json`.
+
 **Permitted use:** personal study, technical research, and non-commercial
 educational exchange only. **Commercial use of any kind is prohibited**, as is
 repackaging and redistributing this project to app stores, download sites, or
@@ -152,6 +218,16 @@ file-sharing platforms, or implying any official affiliation.
 All dialogue in `renderer/dialogue.js` is originally written for this project
 and does not reproduce any text from the light novel, the anime, or any other
 official source.
+
+**Privacy:** the app polls the global cursor position every 120 ms (used only to
+make the character look toward your pointer). An **optional, off-by-default**
+global keyboard hook (npm `uiohook-napi`, based on libuiohook) counts **how many
+key-down events occur per second** to gauge typing pace. It never reads which
+keys were pressed (no `keycode` is read anywhere, verifiable in `main.js`), never
+generates text, never writes to disk, and never sends data anywhere; the count
+lives in a 1-second sliding window in memory and is then discarded. Note that a
+global keyboard hook relies on the same OS APIs keyloggers use, so antivirus
+software may flag it.
 
 The project is built on [Electron](https://www.electronjs.org/), which and whose
 dependencies remain under their own respective licenses. This project's own

@@ -1,0 +1,324 @@
+{
+  "outfit": "winter",
+  "size": [
+    413,
+    790
+  ],
+  "mode": "region-frame",
+  "tag": "facebox",
+  "thr": 14,
+  "layers": {
+    "eye_closed": {
+      "file": "eye_closed.png",
+      "w": 413,
+      "h": 790,
+      "kind": "eye",
+      "region": "face",
+      "mask_box": [
+        108,
+        18,
+        362,
+        258
+      ],
+      "mask_feather": 9.0,
+      "box": [
+        117,
+        18,
+        340,
+        258
+      ],
+      "changed": 20609,
+      "max_diff": 233,
+      "tone_off": 2.09,
+      "inside_tone": -2.35,
+      "ring_tone": -1.26,
+      "inbox_shift": [
+        -1,
+        -3
+      ],
+      "inbox_improve": 12.816,
+      "outside_max_diff": 0,
+      "alpha_outside_max": 0,
+      "thr": 14,
+      "roi": [
+        72,
+        0,
+        398,
+        294
+      ]
+    },
+    "eye_half": {
+      "file": "eye_half.png",
+      "w": 413,
+      "h": 790,
+      "kind": "eye",
+      "region": "face",
+      "mask_box": [
+        108,
+        18,
+        362,
+        258
+      ],
+      "mask_feather": 9.0,
+      "box": [
+        117,
+        18,
+        340,
+        258
+      ],
+      "changed": 19139,
+      "max_diff": 234,
+      "tone_off": 2.09,
+      "inside_tone": -2.61,
+      "ring_tone": -1.5,
+      "inbox_shift": [
+        -1,
+        -2
+      ],
+      "inbox_improve": 10.674,
+      "outside_max_diff": 0,
+      "alpha_outside_max": 0,
+      "thr": 14,
+      "roi": [
+        72,
+        0,
+        398,
+        294
+      ]
+    },
+    "eye_happy": {
+      "file": "eye_happy.png",
+      "w": 413,
+      "h": 790,
+      "kind": "eye",
+      "region": "face",
+      "mask_box": [
+        108,
+        18,
+        362,
+        258
+      ],
+      "mask_feather": 9.0,
+      "box": [
+        117,
+        18,
+        340,
+        258
+      ],
+      "changed": 20279,
+      "max_diff": 240,
+      "tone_off": 2.09,
+      "inside_tone": -2.51,
+      "ring_tone": -1.18,
+      "inbox_shift": [
+        -1,
+        -2
+      ],
+      "inbox_improve": 12.813,
+      "outside_max_diff": 0,
+      "alpha_outside_max": 0,
+      "thr": 14,
+      "roi": [
+        72,
+        0,
+        398,
+        294
+      ]
+    },
+    "eye_wink": {
+      "file": "eye_wink.png",
+      "w": 413,
+      "h": 790,
+      "kind": "eye",
+      "region": "face",
+      "mask_box": [
+        108,
+        18,
+        362,
+        258
+      ],
+      "mask_feather": 9.0,
+      "box": [
+        117,
+        18,
+        340,
+        258
+      ],
+      "changed": 21338,
+      "max_diff": 237,
+      "tone_off": 2.09,
+      "inside_tone": -2.59,
+      "ring_tone": -1.17,
+      "inbox_shift": [
+        -1,
+        -3
+      ],
+      "inbox_improve": 13.327,
+      "outside_max_diff": 0,
+      "alpha_outside_max": 0,
+      "thr": 14,
+      "roi": [
+        72,
+        0,
+        398,
+        294
+      ]
+    },
+    "mouth_smile": {
+      "file": "mouth_smile.png",
+      "w": 413,
+      "h": 790,
+      "kind": "mouth",
+      "region": "mouthbox",
+      "mask_box": [
+        198,
+        155,
+        282,
+        207
+      ],
+      "mask_feather": 7.0,
+      "box": [
+        198,
+        155,
+        282,
+        207
+      ],
+      "changed": 1080,
+      "max_diff": 131,
+      "tone_off": 2.12,
+      "inside_tone": -4.1,
+      "ring_tone": -1.18,
+      "inbox_shift": [
+        0,
+        -1
+      ],
+      "inbox_improve": 5.862,
+      "outside_max_diff": 0,
+      "alpha_outside_max": 0,
+      "thr": 14,
+      "roi": [
+        170,
+        127,
+        310,
+        235
+      ]
+    },
+    "mouth_open": {
+      "file": "mouth_open.png",
+      "w": 413,
+      "h": 790,
+      "kind": "mouth",
+      "region": "mouthbox",
+      "mask_box": [
+        198,
+        155,
+        282,
+        207
+      ],
+      "mask_feather": 7.0,
+      "box": [
+        198,
+        155,
+        282,
+        207
+      ],
+      "changed": 1223,
+      "max_diff": 203,
+      "tone_off": 2.12,
+      "inside_tone": -3.78,
+      "ring_tone": -3.25,
+      "inbox_shift": [
+        0,
+        -1
+      ],
+      "inbox_improve": 4.212,
+      "outside_max_diff": 0,
+      "alpha_outside_max": 0,
+      "thr": 14,
+      "roi": [
+        170,
+        127,
+        310,
+        235
+      ]
+    },
+    "walk_a": {
+      "file": "walk_a.png",
+      "w": 413,
+      "h": 790,
+      "kind": "walk",
+      "region": "hem",
+      "mask_box": [
+        60,
+        614,
+        398,
+        722
+      ],
+      "mask_feather": 16.0,
+      "box": [
+        60,
+        614,
+        395,
+        722
+      ],
+      "changed": 13563,
+      "max_diff": 228,
+      "tone_off": 2.51,
+      "inside_tone": -14.72,
+      "ring_tone": -3.04,
+      "inbox_shift": [
+        0,
+        0
+      ],
+      "inbox_improve": 0.0,
+      "outside_max_diff": 0,
+      "alpha_outside_max": 0,
+      "thr": 14,
+      "roi": [
+        0,
+        550,
+        413,
+        786
+      ]
+    },
+    "walk_b": {
+      "file": "walk_b.png",
+      "w": 413,
+      "h": 790,
+      "kind": "walk",
+      "region": "hem",
+      "mask_box": [
+        60,
+        614,
+        398,
+        722
+      ],
+      "mask_feather": 16.0,
+      "box": [
+        60,
+        614,
+        395,
+        722
+      ],
+      "changed": 7690,
+      "max_diff": 120,
+      "tone_off": 2.51,
+      "inside_tone": -3.88,
+      "ring_tone": -1.5,
+      "inbox_shift": [
+        0,
+        0
+      ],
+      "inbox_improve": 0.0,
+      "outside_max_diff": 0,
+      "alpha_outside_max": 0,
+      "thr": 14,
+      "roi": [
+        0,
+        550,
+        413,
+        786
+      ]
+    }
+  }
+}

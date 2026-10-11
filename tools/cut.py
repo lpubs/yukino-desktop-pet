@@ -60,10 +60,19 @@ def parse():
     a = sys.argv[1:]
     src, dst = a[0], a[1]
     opt = {"border": 8, "thresh": 244, "target": 520, "mask": None,
-           "alpha": None, "tol": 38, "shave": 4, "decon": True}
+           "alpha": None, "tol": 38, "shave": 4, "decon": True, "probe": False}
     i = 2
     while i < len(a):
         k = a[i].lstrip("-")
+        if k == "probe":
+            # 只报"源图还能支撑多大的输出"，不写文件。
+            # 为什么需要：重制素材时唯一的硬约束是**源分辨率**——
+            # 目标高一旦超过源里角色实际占的像素数，就不是"高清重制"，
+            # 而是把同样的信息插值放大，文件变大、细节一点没多。
+            # 这个数只能算不能猜（各图的裁切区间和留白都不一样）。
+            opt["probe"] = True
+            i += 1
+            continue
         if k == "mask-top-right":
             opt["mask"] = tuple(int(v) for v in a[i + 1].split(","))
             i += 2
@@ -143,7 +152,7 @@ def shave_light_rim(a, bg, iterations=4, rim_tol=55.0, min_light=195):
 
 
 def cut(src, dst, border=8, thresh=244, target=520, mask=None, alpha=None,
-        tol=38, shave=4, decon=True):
+        tol=38, shave=4, decon=True, probe=False):
     img = Image.open(src).convert("RGB")
     a = np.asarray(img).astype(np.uint8).copy()
     h, w, _ = a.shape
@@ -231,6 +240,12 @@ def cut(src, dst, border=8, thresh=244, target=520, mask=None, alpha=None,
         out = out.crop((x0, y0, x1, y1))
 
     ow, oh = out.size
+    if probe:
+        # 源里角色实际占的像素高。输出高 ≤ 它就是"用足了源分辨率"，
+        # 超过就是插值放大 —— 重制素材前先看这个数再定目标高。
+        print(f"{os.path.basename(src):20s} 源可用高 {oh:5d}px"
+              f"  ({oh / 560:.2f}× 于现行 560)", flush=True)
+        return None
     sc = target / oh
     out = out.resize((max(1, int(round(ow * sc))), target), Image.LANCZOS)
     out.save(dst)

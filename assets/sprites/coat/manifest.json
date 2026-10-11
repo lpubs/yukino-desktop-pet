@@ -1,0 +1,168 @@
+{
+  "outfit": "coat",
+  "size": [
+    560,
+    762
+  ],
+  "mode": "region-frame",
+  "tag": "facebox",
+  "thr": 14,
+  "layers": {
+    "eye_closed": {
+      "file": "eye_closed.png",
+      "w": 560,
+      "h": 762,
+      "kind": "eye",
+      "region": "face",
+      "mask_box": [
+        117,
+        185,
+        427,
+        410
+      ],
+      "mask_feather": 9.0,
+      "box": [
+        117,
+        185,
+        427,
+        410
+      ],
+      "changed": 23667,
+      "max_diff": 253,
+      "tone_off": 3.62,
+      "inside_tone": -0.73,
+      "ring_tone": -1.34,
+      "inbox_shift": [
+        0,
+        -3
+      ],
+      "inbox_improve": 7.14,
+      "outside_max_diff": 0,
+      "alpha_outside_max": 0,
+      "thr": 14,
+      "roi": [
+        81,
+        149,
+        463,
+        446
+      ]
+    },
+    "eye_half": {
+      "file": "eye_half.png",
+      "w": 560,
+      "h": 762,
+      "kind": "eye",
+      "region": "face",
+      "mask_box": [
+        117,
+        185,
+        427,
+        410
+      ],
+      "mask_feather": 9.0,
+      "box": [
+        117,
+        185,
+        427,
+        410
+      ],
+      "changed": 20139,
+      "max_diff": 255,
+      "tone_off": 3.62,
+      "inside_tone": -1.44,
+      "ring_tone": -1.31,
+      "inbox_shift": [
+        0,
+        -2
+      ],
+      "inbox_improve": 4.801,
+      "outside_max_diff": 0,
+      "alpha_outside_max": 0,
+      "thr": 14,
+      "roi": [
+        81,
+        149,
+        463,
+        446
+      ]
+    },
+    "eye_happy": {
+      "file": "eye_happy.png",
+      "w": 560,
+      "h": 762,
+      "kind": "eye",
+      "region": "face",
+      "mask_box": [
+        117,
+        185,
+        427,
+        410
+      ],
+      "mask_feather": 9.0,
+      "box": [
+        117,
+        185,
+        427,
+        410
+      ],
+      "changed": 23292,
+      "max_diff": 255,
+      "tone_off": 3.62,
+      "inside_tone": -1.23,
+      "ring_tone": -1.39,
+      "inbox_shift": [
+        0,
+        -3
+      ],
+      "inbox_improve": 6.314,
+      "outside_max_diff": 0,
+      "alpha_outside_max": 0,
+      "thr": 14,
+      "roi": [
+        81,
+        149,
+        463,
+        446
+      ]
+    },
+    "eye_wink": {
+      "file": "eye_wink.png",
+      "w": 560,
+      "h": 762,
+      "kind": "eye",
+      "region": "face",
+      "mask_box": [
+        117,
+        185,
+        427,
+        410
+      ],
+      "mask_feather": 9.0,
+      "box": [
+        117,
+        185,
+        427,
+        410
+      ],
+      "changed": 29495,
+      "max_diff": 253,
+      "tone_off": 3.62,
+      "inside_tone": 0.83,
+      "ring_tone": -1.73,
+      "inbox_shift": [
+        0,
+        -4
+      ],
+      "inbox_improve": 7.324,
+      "outside_max_diff": 0,
+      "alpha_outside_max": 0,
+      "thr": 14,
+      "roi": [
+        81,
+        149,
+        463,
+        446
+      ]
+    }
+  }
+}

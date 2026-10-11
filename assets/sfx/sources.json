@@ -1,0 +1,110 @@
+{
+  "note": "由 tools/prepare_sfx.py 生成。逻辑名与 renderer/pet.js 的 SFX_SRC 一一对应。",
+  "rate": 44100,
+  "peak_amp": 0.18,
+  "packs": {
+    "iface": {
+      "name": "Kenney · Interface Sounds",
+      "license": "CC0 1.0 Universal",
+      "page": "https://kenney.nl/assets/interface-sounds"
+    },
+    "impact": {
+      "name": "Kenney · Impact Sounds",
+      "license": "CC0 1.0 Universal",
+      "page": "https://kenney.nl/assets/impact-sounds"
+    }
+  },
+  "sounds": {
+    "angry": {
+      "pack": "iface",
+      "source": "error_008.ogg",
+      "source_rate": 44100,
+      "ms": 139,
+      "bytes": 12332
+    },
+    "back": {
+      "pack": "iface",
+      "source": "maximize_002.ogg",
+      "source_rate": 44100,
+      "ms": 257,
+      "bytes": 22746
+    },
+    "bounce": {
+      "pack": "impact",
+      "source": "impactTin_medium_001.ogg",
+      "source_rate": 44100,
+      "ms": 174,
+      "bytes": 15418
+    },
+    "click": {
+      "pack": "iface",
+      "source": "click_001.ogg",
+      "source_rate": 44100,
+      "ms": 32,
+      "bytes": 2840
+    },
+    "land": {
+      "pack": "impact",
+      "source": "impactSoft_medium_003.ogg",
+      "source_rate": 44100,
+      "ms": 140,
+      "bytes": 12412
+    },
+    "levelup": {
+      "pack": "iface",
+      "source": "confirmation_002.ogg",
+      "source_rate": 44100,
+      "ms": 525,
+      "bytes": 46368
+    },
+    "pat": {
+      "pack": "iface",
+      "source": "pluck_002.ogg",
+      "source_rate": 44100,
+      "ms": 120,
+      "bytes": 10654
+    },
+    "pomdone": {
+      "pack": "iface",
+      "source": "glass_004.ogg",
+      "source_rate": 44100,
+      "ms": 618,
+      "bytes": 54508
+    },
+    "question": {
+      "pack": "iface",
+      "source": "question_002.ogg",
+      "source_rate": 44100,
+      "ms": 329,
+      "bytes": 29018
+    },
+    "quiet": {
+      "pack": "iface",
+      "source": "minimize_002.ogg",
+      "source_rate": 44100,
+      "ms": 257,
+      "bytes": 22746
+    },
+    "select": {
+      "pack": "iface",
+      "source": "select_003.ogg",
+      "source_rate": 44100,
+      "ms": 210,
+      "bytes": 18550
+    },
+    "toggle": {
+      "pack": "iface",
+      "source": "toggle_004.ogg",
+      "source_rate": 44100,
+      "ms": 61,
+      "bytes": 5460
+    },
+    "type": {
+      "pack": "iface",
+      "source": "tick_001.ogg",
+      "source_rate": 44100,
+      "ms": 12,
+      "bytes": 1122
+    }
+  }
+}
